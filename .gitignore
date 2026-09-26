@@ -63,3 +63,13 @@ dist/
 Thumbs.db
 .vscode/
 .idea/
+
+.superpowers/
+
+# 接手期资产保护：官方衍生数据与便携包不入公开仓库（NCR-1.0 / README §十）
+AetherGazer_Server_v5.0_Portable/
+AetherGazer_Server_v5.0_Portable.zip
+captures/
+selftest_tmp/
+*.pcap
+*.pcapng
