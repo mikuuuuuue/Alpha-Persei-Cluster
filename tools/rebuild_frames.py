@@ -17,6 +17,7 @@ UDP 6105（战斗）：切帧依据未定（待读 battle_server.py 核定），
 依赖：pip install dpkt
 """
 import argparse
+import bisect
 import json
 import os
 import socket
@@ -36,16 +37,35 @@ def ip_str(b: bytes) -> str:
     return socket.inet_ntop(socket.AF_INET6, b)
 
 
+def lookup_ts(spans, starts, offset):
+    """在 seg_spans [(start, end, ts), ...] 中二分查找 offset 所属 segment 的 ts。"""
+    if not spans:
+        return 0.0
+    idx = bisect.bisect_right(starts, offset) - 1
+    idx = max(0, min(idx, len(spans) - 1))
+    return spans[idx][2]
+
+
 def reassemble(segments):
-    """同一方向的 [(seq, payload)] → 按序去重重组的字节流。
+    """同一方向的 [(ts, seq, payload)] 或 [(seq, payload)] → (stream_bytes, seg_spans)。
+    seg_spans 为 [(start_offset, end_offset, ts), ...] 列表。
     简化假设：单场景会话远小于 4GB 无 seq 回绕；忽略 IP 分片。"""
     if not segments:
-        return b""
-    base = min(seq for seq, _ in segments)
-    ordered = sorted(segments, key=lambda t: (t[0] - base) % (1 << 32))
+        return b"", []
+    normalized = []
+    for item in segments:
+        if len(item) == 3:
+            normalized.append((float(item[0]), item[1], item[2]))
+        elif len(item) == 2:
+            normalized.append((0.0, item[0], item[1]))
+        else:
+            raise ValueError(f"unexpected segment tuple: {item}")
+    base = min(seq for _, seq, _ in normalized)
+    ordered = sorted(normalized, key=lambda t: ((t[1] - base) % (1 << 32), t[0]))
     out = bytearray()
+    spans = []
     expect = None
-    for seq, payload in ordered:
+    for ts, seq, payload in ordered:
         if expect is None:
             expect = seq
         if seq + len(payload) <= expect:
@@ -53,9 +73,13 @@ def reassemble(segments):
         if seq > expect:
             print(f"[warn] TCP 流缺口 {seq - expect}B（跳过继续）", file=sys.stderr)
             expect = seq
-        out += payload[expect - seq:]
+        chunk = payload[expect - seq:]
+        start_offset = len(out)
+        out += chunk
+        end_offset = len(out)
+        spans.append((start_offset, end_offset, ts))
         expect = seq + len(payload)
-    return bytes(out)
+    return bytes(out), spans
 
 
 def iter_ip(buf, datalink):
@@ -96,10 +120,10 @@ def rebuild(pcap_path, out_dir, tcp_ports, udp_port):
         if isinstance(l4, dpkt.tcp.TCP):
             if not l4.data or not (l4.sport in ports or l4.dport in ports):
                 continue
-            tcp_segs[(ip.src, l4.sport, ip.dst, l4.dport)].append((l4.seq, bytes(l4.data)))
+            tcp_segs[(ip.src, l4.sport, ip.dst, l4.dport)].append((float(ts), l4.seq, bytes(l4.data)))
         elif isinstance(l4, dpkt.udp.UDP):
             if udp_port in (l4.sport, l4.dport) and l4.data:
-                udp_dgrams.append((ts, ip.src, l4.sport, ip.dst, l4.dport, bytes(l4.data)))
+                udp_dgrams.append((float(ts), ip.src, l4.sport, ip.dst, l4.dport, bytes(l4.data)))
 
     summary = []
     n = 0
@@ -108,23 +132,27 @@ def rebuild(pcap_path, out_dir, tcp_ports, udp_port):
             direction, port = "up", dport
         else:
             direction, port = "down", sport
-        stream = reassemble(segs)
+        stream, seg_spans = reassemble(segs)
         fp = FrameParser(direction)
         frames = fp.feed(stream)
         leftover = len(fp.buf)
         n += 1
         name = f"tcp_{n}_{direction}_{port}.jsonl"
         cmds = []
+        starts = [s[0] for s in seg_spans]
+        frame_offset = 0
         with open(os.path.join(out_dir, name), "w", encoding="utf-8") as w:
             for fr in frames:
+                frame_ts = lookup_ts(seg_spans, starts, frame_offset)
+                frame_offset += len(fr)
                 try:
                     rec = unpack_up(fr) if direction == "up" else unpack_down(fr)
                 except Exception as e:
-                    w.write(json.dumps({"type": "tcp", "dir": direction, "error": str(e),
+                    w.write(json.dumps({"type": "tcp", "dir": direction, "ts": frame_ts, "error": str(e),
                                         "raw_hex": fr.hex()}, ensure_ascii=False) + "\n")
                     continue
                 payload = rec.pop("payload", b"")
-                rec.update({"type": "tcp", "dir": direction,
+                rec.update({"type": "tcp", "dir": direction, "ts": frame_ts,
                             "payload_len": len(payload), "payload_hex": payload.hex()})
                 cmds.append(rec.get("cmd"))
                 w.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -190,11 +218,11 @@ def selftest(tmp="selftest_tmp"):
     down_stream = pack_down(10039, b"\x08\x96\x01") + pack_down(14009, big)
     c, s = "192.168.31.10", "203.0.113.7"
     pkts = [
-        tcp_pkt(c, s, 55555, 8105, 1000, up_stream[:10]),   # 半个帧头
-        tcp_pkt(c, s, 55555, 8105, 1000, up_stream[:10]),   # 重传副本
-        tcp_pkt(c, s, 55555, 8105, 1010, up_stream[10:]),
-        tcp_pkt(s, c, 8105, 55555, 5000, down_stream),
-        udp_pkt(c, s, 6106, 6105, b"\x01\x02\x03"),
+        tcp_pkt(c, s, 55555, 8105, 1000, up_stream[:10]),   # 半个帧头 (ts = 1770000000.0)
+        tcp_pkt(c, s, 55555, 8105, 1000, up_stream[:10]),   # 重传副本 (ts = 1770000001.0)
+        tcp_pkt(s, c, 8105, 55555, 5000, down_stream),      # 下行帧 (ts = 1770000002.0)
+        tcp_pkt(c, s, 55555, 8105, 1010, up_stream[10:]),   # 上行后半 (ts = 1770000003.0)
+        udp_pkt(c, s, 6106, 6105, b"\x01\x02\x03"),          # 战斗报文 (ts = 1770000004.0)
     ]
     os.makedirs(tmp, exist_ok=True)
     pcap = os.path.join(tmp, "selftest.pcap")
@@ -203,7 +231,8 @@ def selftest(tmp="selftest_tmp"):
     lines = []
     for fn in os.listdir(os.path.join(tmp, "rebuilt")):
         if fn.endswith(".jsonl"):
-            lines += [json.loads(x) for x in open(os.path.join(tmp, "rebuilt", fn), encoding="utf-8")]
+            with open(os.path.join(tmp, "rebuilt", fn), encoding="utf-8") as rf:
+                lines += [json.loads(x) for x in rf]
     up_cmds = [r["cmd"] for r in lines if r.get("dir") == "up" and r.get("type") == "tcp"]
     down_cmds = [r["cmd"] for r in lines if r.get("dir") == "down" and r.get("type") == "tcp"]
     udp_n = sum(1 for r in lines if r.get("type") == "udp")
@@ -212,8 +241,23 @@ def selftest(tmp="selftest_tmp"):
     assert udp_n == 1, udp_n
     big_rec = next(r for r in lines if r.get("cmd") == 14009)
     assert big_rec["compressed"] and big_rec["payload_len"] > 12000
+
+    r_10038 = next(r for r in lines if r.get("cmd") == 10038)
+    r_10042 = next(r for r in lines if r.get("cmd") == 10042)
+    r_10050 = next(r for r in lines if r.get("cmd") == 10050)
+    r_10039 = next(r for r in lines if r.get("cmd") == 10039)
+    r_14009 = next(r for r in lines if r.get("cmd") == 14009)
+    r_udp = next(r for r in lines if r.get("type") == "udp")
+
+    assert r_10038["ts"] == 1770000000.0, r_10038["ts"]
+    assert r_10039["ts"] == 1770000002.0, r_10039["ts"]
+    assert r_14009["ts"] == 1770000002.0, r_14009["ts"]
+    assert r_10042["ts"] == 1770000003.0, r_10042["ts"]
+    assert r_10050["ts"] == 1770000003.0, r_10050["ts"]
+    assert r_udp["ts"] == 1770000004.0, r_udp["ts"]
+    assert all(isinstance(r["ts"], float) for r in lines if "ts" in r)
     print("自测通过：上行 3 帧(10038/10042/10050)、下行 2 帧(10039/14009，含 zlib 解压)、UDP 1 条、"
-          "跨段重组与重传去重正确")
+          "跨段重组与重传去重正确、帧起始所属 segment 时间戳(ts)映射正确")
 
 
 def main():
