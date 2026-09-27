@@ -280,11 +280,33 @@ def find_cached_file(filename: str, platform: str = "pc"):
     return None
 
 
+_ETAG_CACHE = {}
+
+
+def _file_md5_headers(file_path):
+    """按 (path,size,mtime) 缓存计算 ETag/Content-MD5，对齐官方 CDN 响应头。
+
+    321 客户端更新器对 .bytes 清单缺 Content-MD5/ETag 时会视为损坏并无限重试
+    （实测：voice_package_list 60 秒周期重试、字节与官方一致仍不继续）。
+    """
+    import base64
+    import hashlib as _hashlib
+    key = (file_path, os.path.getsize(file_path), os.path.getmtime(file_path))
+    if key not in _ETAG_CACHE:
+        h = _hashlib.md5()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        hexd = h.hexdigest().upper()
+        _ETAG_CACHE[key] = (hexd, base64.b64encode(h.digest()).decode("ascii"))
+    return _ETAG_CACHE[key]
+
+
 def serve_local_stream(file_path, range_header=None):
     """从本地文件高效流式下发，支持 200 / 206 Partial Content。"""
     file_size = os.path.getsize(file_path)
     fn = os.path.basename(file_path)
-    ctype = "application/json" if (fn.endswith(".bytes") or fn.endswith(".json")) else "application/octet-stream"
+    ctype = "application/json" if fn.endswith(".json") else "application/octet-stream"
 
     # 处理 Range 请求
     start = 0
@@ -326,6 +348,13 @@ def serve_local_stream(file_path, range_header=None):
     resp.headers["Content-Length"] = str(length)
     resp.headers["Accept-Ranges"] = "bytes"
     resp.headers["Access-Control-Allow-Origin"] = "*"
+    if status == 200 and fn.endswith((".bytes", ".json")):
+        # 官方 CDN 恒带这三个校验头；321 更新器依赖它们判定响应完整性
+        etag_hex, cmd5 = _file_md5_headers(file_path)
+        resp.headers["ETag"] = f'"{etag_hex}"'
+        resp.headers["Content-MD5"] = cmd5
+        resp.headers["Last-Modified"] = time.strftime(
+            "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(os.path.getmtime(file_path)))
     if status == 206:
         resp.headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
     return resp
@@ -481,6 +510,10 @@ def stream_upstream_and_cache(path, host="download-eo.ys4fun.com", query="", hea
         resp.headers["Content-Range"] = content_range
     if etag:
         resp.headers["ETag"] = etag
+    for hdr in ("Content-MD5", "Last-Modified"):
+        v = u_resp.getheader(hdr)
+        if v:
+            resp.headers[hdr] = v
     resp.headers["Accept-Ranges"] = "bytes"
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp

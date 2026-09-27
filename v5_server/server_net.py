@@ -1425,6 +1425,26 @@ def build_https_app(core, material=None, game_port=8105, gw_port=8102, host_ip=N
 
         # 11. 协议更新与公告（优先读取官方完整结构，杜绝字段不匹配）
         if path.endswith("/pass/game/agreementupdate/getLatest"):
+            # 官方在线优先（同 updateversion 逻辑），失败回落本地静态公告
+            try:
+                from cdn_proxy import fetch_upstream
+                _q = request.query_string.decode("utf-8", "ignore")
+                _st, _hdr, _data = fetch_upstream(
+                    "open.ys4fun.com", "/mix-sdk-api/pass/game/agreementupdate/getLatest",
+                    query=_q, headers={"User-Agent": request.headers.get("User-Agent", "")},
+                    timeout=8, log=lambda *a, **k: None)
+                if _st == 200:
+                    try:
+                        _ok = json.loads(_data).get("errorCode") == "0"
+                    except Exception:
+                        _ok = False
+                    if _ok:
+                        print(f"[SDK] agreementupdate 官方透传命中 ({len(_data)}B)", flush=True)
+                        resp = Response(_data, status=200, mimetype="application/json")
+                        resp.headers["Content-Length"] = str(len(_data))
+                        return resp
+            except Exception as _e:
+                print(f"[SDK] agreementupdate 官方透传异常: {_e}，回落本地公告", flush=True)
             agr_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk_agreement.json")
             if os.path.isfile(agr_p):
                 try:
@@ -1528,6 +1548,31 @@ def build_https_app(core, material=None, game_port=8105, gw_port=8102, host_ip=N
             is_android = plat == "android" or "android" in ua
             cur_plat = "ios" if is_ios else ("android" if is_android else "pc")
             record_client_platform(cur_plat)
+
+            # 官方在线优先：陪伴服存活期间透传真实版本检查响应（真实签名校验+最新配置），
+            # 穿透失败（离线/签名过期）回落本地模板。321 客户端更新器对官方响应语义
+            # 敏感——实测本地模板会触发语音包步骤死循环（2026-09-27）。
+            try:
+                from cdn_proxy import fetch_upstream
+                _q = request.query_string.decode("utf-8", "ignore")
+                _st, _hdr, _data = fetch_upstream(
+                    "open.ys4fun.com", "/mix-sdk-api/pass/game/updateversion/getLatest",
+                    query=_q, headers={"User-Agent": request.headers.get("User-Agent", "")},
+                    timeout=8, log=lambda *a, **k: None)
+                _ok = False
+                if _st == 200:
+                    try:
+                        _ok = json.loads(_data).get("errorCode") == "0"
+                    except Exception:
+                        _ok = False
+                if _ok:
+                    print(f"[SDK] updateversion 官方透传命中 ({len(_data)}B)", flush=True)
+                    resp = Response(_data, status=200, mimetype="application/json")
+                    resp.headers["Content-Length"] = str(len(_data))
+                    return resp
+                print(f"[SDK] updateversion 官方透传未命中 (status={_st})，回落本地模板", flush=True)
+            except Exception as _e:
+                print(f"[SDK] updateversion 官方透传异常: {_e}，回落本地模板", flush=True)
 
             # 统一根据 res_version_manager 动态分发所选版本（229 或 311）之资源清单配置
             import res_version_manager

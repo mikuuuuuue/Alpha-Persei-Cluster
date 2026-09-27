@@ -14,7 +14,7 @@ import re
 import threading
 import time
 
-SUPPORTED_VERSIONS = ("229", "311")
+SUPPORTED_VERSIONS = ("229", "311", "321")
 DEFAULT_VERSION = "229"
 # 2047-05-04 05:00:00 +08:00。活动时间统一在协议输出层延长，
 # 不因切换版本去改写玩家数据库。
@@ -120,6 +120,35 @@ VERSION_CONFIGS = {
         "polyhedron_activity_id": 4407301,
         "deprecated_shops": [16, 18, 24, 25, 34, 35, 36, 37, 42],
         "description": "v5.2.2 / v5.3.0 兼容环境，支持 33 赛季战令与 Theme 44 演进。",
+    },
+    # Build 321 (v5.3.1 陪伴服末版)：assethash/voice 文件名来自官方 updateversion/getLatest
+    # 实测响应（2026-09-27，存档 .superpowers/sdd/M1-执行计划/official-321-versioncheck.json）。
+    # 活动/主题 ID 按 229→43x、311→44x 的 +100000 递进推定为 45x 系（暂定值，异常时按真机表现回修）。
+    "321": {
+        "version": "321",
+        "version_name": "v5.3.1",
+        "display_name": "Build 321 (v5.3.1 陪伴服末版)",
+        "matched_app_version": "307",
+        "assethash": {
+            "pc": "assethash_307_321_a66c600ea8c72f003e03969fdd352250.bytes",
+            "android": "assethash_307_321_a66c600ea8c72f003e03969fdd352250.bytes",
+            "ios": "assethash_307_321_a66c600ea8c72f003e03969fdd352250.bytes",
+        },
+        "voice_package_list": "voice_package_list_307_321.bytes",
+        "voice_hashes": {
+            "ja": "voice_hash_ja_30700321.bytes",
+            "zh": "voice_hash_zh_30700321.bytes",
+        },
+        "theme_id": 45,
+        "battlepass_season": 34,
+        "entry_activity_id": 4510001,
+        "sign_activity_id": 4500101,
+        "battlepass_list_id": 20034,
+        "heart_demon_activity_id": 4535001,
+        "core_verification_activity_id": 4543501,
+        "polyhedron_activity_id": 4507301,
+        "deprecated_shops": [16, 18, 24, 25, 34, 35, 36, 37, 42],
+        "description": "v5.3.1 陪伴服末版对齐：assethash 为官方实测名，活动 ID 为 45x 模式暂定。",
     },
 }
 

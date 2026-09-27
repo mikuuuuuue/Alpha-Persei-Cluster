@@ -99,8 +99,8 @@ def main(argv=None):
                     help="UDP 动态战斗服端口（0=禁用；sc_54007 下发给客户端）")
     ap.add_argument("--db", default=os.environ.get("ACCOUNT_DB_PATH", "account.db"),
                     help="指定挂载的数据库文件路径或名称 (默认: account.db)")
-    ap.add_argument("--res-version", choices=["auto", "229", "311"], default="auto",
-                    help="指定客户端分发资源版本 (默认: auto 优先自动对齐客户端目录版本, 可选: 229, 311)")
+    ap.add_argument("--res-version", choices=["auto", "229", "311", "321"], default="auto",
+                    help="指定客户端分发资源版本 (默认: auto 优先自动对齐客户端目录版本, 可选: 229, 311, 321)")
     ap.add_argument("--client-assets-dir", default="",
                     help="指定客户端 StreamingAssets 资源目录（用于自动版本探测，留空使用默认官方路径）")
     ap.add_argument("--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"],
