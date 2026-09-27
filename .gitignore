@@ -73,3 +73,9 @@ captures/
 selftest_tmp/
 *.pcap
 *.pcapng
+
+# M1 运行时数据产物（官方衍生，NCR-1.0 / README §十，只提交提取工具不提交产物）
+v5_server/lua_proto_messages.json
+v5_server/角色挖掘/
+v5_server/account.db
+
