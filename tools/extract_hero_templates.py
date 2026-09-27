@@ -10,7 +10,7 @@
 
 用法：
   python tools/extract_hero_templates.py <capture_path_or_dir> -o <output_dir>
-  python tools/extract_hero_templates.py --cross-validate
+  python tools/extract_hero_templates.py --cross-validate [--captures-root <captures_root>]
 """
 
 import argparse
@@ -266,10 +266,13 @@ def extract_hero_templates(capture_path: str, output_dir: str):
     return hero_records
 
 
-def cross_validate(capture_paths=None):
+DEFAULT_CAPTURES_ROOT = r"C:\Users\<user>\Desktop\Alpha-Persei-Captures"
+
+
+def cross_validate(capture_paths=None, captures_root: str = DEFAULT_CAPTURES_ROOT):
     """三处 sc_14009 抓包交叉验证。"""
     if capture_paths is None:
-        base = r"C:\Users\<user>\Desktop\Alpha-Persei-Captures"
+        base = captures_root or DEFAULT_CAPTURES_ROOT
         capture_paths = [
             os.path.join(base, "2026-09-26_登录"),
             os.path.join(base, "2026-09-26_批量"),
@@ -320,18 +323,57 @@ def cross_validate(capture_paths=None):
 
 def main():
     parser = argparse.ArgumentParser(description="sc_14009 英雄模板提取器")
-    parser.add_argument("capture_path", nargs="?", default="", help="抓包目录或 rebuilt jsonl 文件路径")
-    parser.add_argument("-o", "--output", default=os.path.join(_V5_SERVER, "角色挖掘"), help="模板输出目录")
-    parser.add_argument("--cross-validate", action="store_true", help="对三处抓包执行交叉验证")
+    parser.add_argument(
+        "capture_path",
+        nargs="?",
+        default="",
+        help="抓包目录或 rebuilt jsonl 文件路径（可为登录场景目录，或包含各场景的抓包根目录）",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=os.path.join(_V5_SERVER, "角色挖掘"),
+        help="模板输出目录（默认: v5_server/角色挖掘）",
+    )
+    parser.add_argument(
+        "--captures-root",
+        default=DEFAULT_CAPTURES_ROOT,
+        help=f"抓包根目录（默认: %(default)s），用于交叉验证与默认主提取使用",
+    )
+    parser.add_argument(
+        "--cross-validate",
+        action="store_true",
+        help="对三处抓包（登录、批量、补抓2）执行交叉验证",
+    )
 
     args = parser.parse_args()
 
+    captures_root = args.captures_root
+    target_capture = args.capture_path
+
+    # 若传入的 capture_path 是包含子场景的根目录，则自动共用为 captures_root 并定位登录场景
+    if target_capture and os.path.isdir(target_capture):
+        login_subdir = os.path.join(target_capture, "2026-09-26_登录")
+        if os.path.isdir(login_subdir):
+            if args.captures_root == DEFAULT_CAPTURES_ROOT:
+                captures_root = target_capture
+            target_capture = login_subdir
+    elif target_capture:
+        # 若指定了具体子场景路径，尝试推断其上级目录是否为抓包根目录（供交叉验证使用）
+        curr = os.path.abspath(target_capture)
+        for _ in range(3):
+            curr = os.path.dirname(curr)
+            if os.path.isdir(os.path.join(curr, "2026-09-26_批量")):
+                if args.captures_root == DEFAULT_CAPTURES_ROOT:
+                    captures_root = curr
+                break
+
     if args.cross_validate or not args.capture_path:
-        cross_validate()
+        cross_validate(captures_root=captures_root)
         if not args.capture_path:
             return
 
-    extract_hero_templates(args.capture_path, args.output)
+    extract_hero_templates(target_capture, args.output)
 
 
 if __name__ == "__main__":

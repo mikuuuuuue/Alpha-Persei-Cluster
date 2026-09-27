@@ -31,6 +31,7 @@
   - [3.2 Mode A: Desktop Launcher (Recommended)](#32-mode-a-desktop-launcher-recommended)
   - [3.3 Mode B: Command-Line Interface (CLI)](#33-mode-b-command-line-interface-cli)
   - [3.4 Client Traffic Redirection](#34-client-traffic-redirection)
+  - [3.5 Runtime Data Preparation (Self-Extracted)](#35-runtime-data-preparation-self-extracted)
 - [4. CLI Arguments Reference](#4-cli-arguments-reference)
 - [5. Core Server Architecture: Breakdown of all 70 Modules](#5-core-server-architecture-breakdown-of-all-70-modules)
   - [5.1 Main Assembly & Lifecycle Entrypoints (4 modules)](#51-main-assembly--lifecycle-entrypoints-4-modules)
@@ -168,6 +169,28 @@ Add static resolution entries to `C:\Windows\System32\drivers\etc\hosts` pointin
 3. In iOS Wi-Fi settings, manually set the DNS server to the PC's LAN IP (`192.168.1.100`);
 4. Open Safari on iOS, navigate to `http://192.168.1.100/sdk_ca.mobileconfig`, then install and trust the profile;
 5. **Note**: Due to limited testing hardware, only iOS has undergone preliminary verification. Android and HarmonyOS have not yet been systematically tested, though the underlying networking principles remain comparable.
+
+### 3.5 Runtime Data Preparation (Self-Extracted)
+
+In compliance with [§10 Disclaimer](#10-disclaimer--compliance), proprietary assets are not distributed. After cloning the repository, extract the necessary runtime artifacts locally (template coverage depends on characters unlocked in the captured account):
+
+1. **Prerequisites**: Unpack the client to obtain `protocol/*_pb.lua` (91 files) and an official login packet capture containing the `sc_14009` frame;
+2. **Extract Protocol Schema** (~3,040 messages):
+   ```powershell
+   python tools/extract_proto_schema.py <protocol_dir> -o v5_server/lua_proto_messages.json
+   ```
+3. **Extract Hero Templates** (77 templates, byte-exact assertion):
+   ```powershell
+   python tools/extract_hero_templates.py <login_capture_dir> -o v5_server/角色挖掘
+   ```
+4. **Copy Base Database** (from the portable package):
+   ```powershell
+   cp AetherGazer_Server_v5.0_Portable/v5_server/account.db v5_server/
+   ```
+5. **Verify Installation**:
+   ```powershell
+   cd v5_server && python ../tests/m1_dispatch_check.py
+   ```
 
 ---
 
