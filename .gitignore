@@ -79,3 +79,7 @@ v5_server/lua_proto_messages.json
 v5_server/角色挖掘/
 v5_server/account.db
 
+
+# Task 6 诊断产物防护（官方衍生：CDN 缓存/转储等）
+v5_server/cdn_cache/
+*.dmp
