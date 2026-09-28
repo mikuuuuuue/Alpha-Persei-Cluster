@@ -322,6 +322,14 @@ _VOICE_TREADMILL_TMPL = None  # 修剪清单模板（条目列表）惰性加载
 
 
 def _voice_treadmill_version():
+    # AG_VOICE_TREADMILL_PIN：钉住版本号（用于非提权诊断会话——清单已安装后，
+    # 固定版本可让客户端走本地缓存零写入路径，无需管理员权限）
+    pinned = os.environ.get("AG_VOICE_TREADMILL_PIN", "")
+    if pinned.strip():
+        try:
+            return int(pinned)
+        except ValueError:
+            pass
     return _VOICE_TREADMILL_BASE + max(0, int((time.time() - _VOICE_TREADMILL_EPOCH) // 60))
 
 

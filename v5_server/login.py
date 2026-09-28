@@ -11,6 +11,7 @@ login.py — V5 登录洪流模块（DB 驱动，2026-08-16 大项目阶段2）
   size 重算），失败回库内 blob 兜底；其余帧 header+payload 直拼（逐字节=素材）。
 """
 import json
+import os
 import struct
 import time
 import zlib
@@ -55,7 +56,33 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
     # Build 311 的活动根 111 只开放 template=433 (Mode 4)。旧登录表仍含 sc_89013
     # (Mode 1)；若让它回退到库内 blob，311 会在 CoreVerificationChallengeData.InitTaskInfo
     # 中索引 ActivityCfg[nil] 并卡死大厅 Loading。这里必须跳过整帧，不能返回 None 走 blob 兜底。
-    version_suppressed_cmds = {"311": {89013}}
+    #
+    # 321_LOGIN_FLOOD_GUARD (2026-09-28, 真机探针逐帧定位):
+    # 229 时代洪流帧携带的旧配置 ID 会让 321 客户端 Lua 索引 nil 崩溃，异常沿
+    # StreamConnection:AsyncUpdate 炸断整条登录数据处理链 → 大厅 Loading 永久转圈：
+    #   - sc_34031: battlepass_list_id 在 321 的 GameLevelSetting 无此档 →
+    #     PassportData.GetMaxLevel 索引 nil（PassportAction.UpdateBonusRedPoint 栈崩）
+    #   - sc_75017: open_edition 在 321 心魔配置无此期 →
+    #     MultHeartDemonData.InitMultHeartDemonData→UpdateName 索引 nil
+    # 抑制后实测：199 帧洪流全量处理完毕、客户端主动发业务请求、进入主城（截图
+    # screen_city.png：时迹回赠活动窗"已累计登录121天"）。
+    version_suppressed_cmds = {
+        "311": {89013},
+        "321": {34031, 75017},
+    }
+    # 诊断仪器（默认惰性）：AG_LOGIN_SUPPRESS_CMDS="88305,89013,..." 逗号分隔 cmd 列表，
+    # 用于真机"卡大厅 Loading"类故障的洪流帧二分定位；不设置则无影响。
+    _env_suppress_raw = os.environ.get("AG_LOGIN_SUPPRESS_CMDS", "")
+    _env_suppress = set()
+    for _tok in _env_suppress_raw.split(","):
+        _tok = _tok.strip()
+        if _tok:
+            try:
+                _env_suppress.add(int(_tok))
+            except ValueError:
+                pass
+    if _env_suppress:
+        version_suppressed_cmds.setdefault(login_res_version, set()).update(_env_suppress)
     sent = dyn_hit = 0
     sock.settimeout(5)
 
