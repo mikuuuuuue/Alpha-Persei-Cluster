@@ -21,6 +21,7 @@ cdn_proxy.py — 深空之眼 高性能流式 CDN 资源穿透与动态抓包拦
 import http.client
 import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -302,6 +303,43 @@ def _file_md5_headers(file_path):
     return _ETAG_CACHE[key]
 
 
+def _file_md5_bytes(body):
+    """对内存字节计算 (ETag-hex, Content-MD5-base64)，语义同 _file_md5_headers。"""
+    import base64
+    import hashlib as _hashlib
+    h = _hashlib.md5(body)
+    return h.hexdigest().upper(), base64.b64encode(h.digest()).decode("ascii")
+
+
+# ==== 语音零差异跑步机配置（详见 handle_resource_request 内注释） ====
+# 版本 = 30701000 + 自锚定时刻(2026-09-28 00:00 +08)以来的分钟数：
+# 任意两次启动间严格递增 → 客户端每次都走"版本差→下载清单→diff=空→跳过确认
+# →校验→完成"的已验证路径，永不落入"版本相等"未测试分支。
+_VOICE_TREADMILL_EPOCH = 1790524800  # 2026-09-28 00:00:00 +08:00 (UTC 2026-09-27T16:00Z)
+_VOICE_TREADMILL_BASE = 30701000
+_VOICE_TREADMILL_ENABLED = os.environ.get("AG_VOICE_TREADMILL", "1") != "0"
+_VOICE_TREADMILL_TMPL = None  # 修剪清单模板（条目列表）惰性加载
+
+
+def _voice_treadmill_version():
+    return _VOICE_TREADMILL_BASE + max(0, int((time.time() - _VOICE_TREADMILL_EPOCH) // 60))
+
+
+def _voice_treadmill_manifest_bytes(version):
+    """按需合成指定版本的零差异清单（条目=模板，version 字段=请求版本）。"""
+    global _VOICE_TREADMILL_TMPL
+    import json as _json
+    if _VOICE_TREADMILL_TMPL is None:
+        tmpl_path = find_cached_file("voice_hash_zh_%d.bytes" % _VOICE_TREADMILL_BASE, platform="pc")
+        if not tmpl_path:
+            return None
+        with open(tmpl_path, "r", encoding="utf-8") as f:
+            _VOICE_TREADMILL_TMPL = _json.load(f)
+    manifest = dict(_VOICE_TREADMILL_TMPL)
+    manifest["version"] = version
+    return _json.dumps(manifest, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
 def serve_local_stream(file_path, range_header=None):
     """从本地文件高效流式下发，支持 200 / 206 Partial Content。"""
     file_size = os.path.getsize(file_path)
@@ -324,6 +362,13 @@ def serve_local_stream(file_path, range_header=None):
                 end = file_size - 1
             if start <= end and start < file_size:
                 status = 206
+            elif start >= file_size:
+                # 断点续传已完整（Range 起点超出文件）：按 RFC 返回 416，
+                # 否则客户端更新器会拿到 Content-Length:0 的假 200 而永久挂起
+                resp = Response("Range Not Satisfiable", status=416, mimetype="text/plain")
+                resp.headers["Content-Range"] = f"bytes */{file_size}"
+                resp.headers["Accept-Ranges"] = "bytes"
+                return resp
         except Exception:
             start = 0
             end = file_size - 1
@@ -348,8 +393,9 @@ def serve_local_stream(file_path, range_header=None):
     resp.headers["Content-Length"] = str(length)
     resp.headers["Accept-Ranges"] = "bytes"
     resp.headers["Access-Control-Allow-Origin"] = "*"
-    if status == 200 and fn.endswith((".bytes", ".json")):
-        # 官方 CDN 恒带这三个校验头；321 更新器依赖它们判定响应完整性
+    if fn.endswith((".bytes", ".json")):
+        # 官方 CDN 对 200 与 206 恒带这三个校验头；321 更新器（WWWDownloadHandler）
+        # 依赖它们判定分片/续传响应的完整性——缺失会导致下载永不完成（E3' 卡死根因）
         etag_hex, cmd5 = _file_md5_headers(file_path)
         resp.headers["ETag"] = f'"{etag_hex}"'
         resp.headers["Content-MD5"] = cmd5
@@ -568,6 +614,53 @@ def handle_resource_request(path, host="download-eo.ys4fun.com", query="", heade
     fn = os.path.basename(path.split("?")[0])
     platform = get_platform_from_path(path, headers)
     range_hdr = headers.get("Range") if headers else None
+
+    # ==== 语音零差异跑步机（M1 Task 6 / U16 路径② 根因对策，2026-09-28） ====
+    # 321 客户端语音更新链存在两处服务端可绕开的死锁：
+    #   ① 清单与本地完全一致但存在缺失文件时 → WaitConfirm 确认弹窗在启动环屏阶段
+    #      无法渲染 → 永久等待（E0 官方字节卡死根因）；
+    #   ② 完全无工作（空列表/版本相等且零差异前置态）时 → DownloadHaseNode /
+    #      VoiceDiffNode 空转永不完成（E1 卡死根因）。
+    # 对策：恒定下发 zh-only + 版本 30701000 + 与客户端本地磁盘 100% 一致的修剪清单
+    # （voice_hash_zh_30701000.bytes，剔除本地缺失的 30 个 story_v_side_new_*）。
+    # 客户端每次走“下载清单(真网络工作)→diff=空→跳过确认→校验全过→Downloaded”
+    # 的官方稳态路径，既避开死锁①②，也绝不触发大文件下载。
+    # 环境开关：AG_VOICE_TREADMILL=0 关闭（回落官方透传行为）。
+    if _VOICE_TREADMILL_ENABLED and platform == "pc":
+        _treadmill_ver = _voice_treadmill_version()
+        if fn.startswith("voice_package_list_307_"):
+            body = ('{"infos":[{"name":"zh","version":%d,"size":6601309}]}'
+                    % _treadmill_ver).encode("utf-8")
+            log(f"[CDN] 语音跑步机：下发 zh-only 零差异列表 (version={_treadmill_ver})",
+                "INFO", module="CDN")
+            resp = Response(body, status=200, mimetype="application/octet-stream")
+            resp.headers["Content-Length"] = str(len(body))
+            resp.headers["Accept-Ranges"] = "bytes"
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            etag_hex, cmd5 = _file_md5_bytes(body)
+            resp.headers["ETag"] = f'"{etag_hex}"'
+            resp.headers["Content-MD5"] = cmd5
+            resp.headers["Last-Modified"] = time.strftime(
+                "%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
+            return resp
+        _m = re.match(r"^voice_hash_zh_(\d{6,})\.bytes$", fn)
+        if _m and _VOICE_TREADMILL_BASE <= int(_m.group(1)) <= _treadmill_ver:
+            body = _voice_treadmill_manifest_bytes(int(_m.group(1)))
+            if body is not None:
+                log(f"[CDN] 语音跑步机：合成零差异清单 (version={_m.group(1)})", "INFO", module="CDN")
+                resp = Response(body, status=200, mimetype="application/octet-stream")
+                resp.headers["Content-Length"] = str(len(body))
+                resp.headers["Accept-Ranges"] = "bytes"
+                resp.headers["Access-Control-Allow-Origin"] = "*"
+                etag_hex, cmd5 = _file_md5_bytes(body)
+                resp.headers["ETag"] = f'"{etag_hex}"'
+                resp.headers["Content-MD5"] = cmd5
+                resp.headers["Last-Modified"] = time.strftime(
+                    "%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
+                return resp
+            log("[CDN] 语音跑步机：警告——修剪清单模板缺失（cdn_cache/pc/"
+                "voice_hash_zh_%d.bytes），该清单回落常规缓存/透传路径"
+                % _VOICE_TREADMILL_BASE, "WARN", module="CDN")
 
     # 1. 查找本地缓存（优先该平台目录）
     cached = find_cached_file(fn, platform=platform)
