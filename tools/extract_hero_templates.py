@@ -266,7 +266,7 @@ def extract_hero_templates(capture_path: str, output_dir: str):
     return hero_records
 
 
-DEFAULT_CAPTURES_ROOT = r"C:\Users\<user>\Desktop\Alpha-Persei-Captures"
+DEFAULT_CAPTURES_ROOT = os.path.join(_REPO_ROOT, "Alpha-Persei-Captures")
 
 
 def cross_validate(capture_paths=None, captures_root: str = DEFAULT_CAPTURES_ROOT):
@@ -318,7 +318,8 @@ def cross_validate(capture_paths=None, captures_root: str = DEFAULT_CAPTURES_ROO
     else:
         print("警告：三帧 ID 集合存在差异！")
 
-    return results
+    # 【2026-09-29 整改 P3】返回校验结论而非裸 results，main() 据此给非零退出码
+    return all_match
 
 
 def main():
@@ -369,9 +370,11 @@ def main():
                 break
 
     if args.cross_validate or not args.capture_path:
-        cross_validate(captures_root=captures_root)
+        ok = cross_validate(captures_root=captures_root)
+        # 【2026-09-29 整改 P3】交叉验证三帧不一致时以非零码退出（旧版只打警告，
+        # CI/脚本化场景下失败被吞）
         if not args.capture_path:
-            return
+            sys.exit(0 if ok else 1)
 
     extract_hero_templates(target_capture, args.output)
 

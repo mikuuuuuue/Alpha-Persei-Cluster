@@ -123,7 +123,14 @@ VERSION_CONFIGS = {
     },
     # Build 321 (v5.3.1 陪伴服末版)：assethash/voice 文件名来自官方 updateversion/getLatest
     # 实测响应（2026-09-27，存档 .superpowers/sdd/M1-执行计划/official-321-versioncheck.json）。
-    # 活动/主题 ID 按 229→43x、311→44x 的 +100000 递进推定为 45x 系（暂定值，异常时按真机表现回修）。
+    # 【2026-09-29 整改 P1-3 [实测]】活动/战令/心魔 ID 弃用旧"+100000 递进推定 45x"暂定值——
+    # 从 321 客户端 scripts64.ys 提取 BattlePassListCfg/ActivityCfg/MultHeartDemonCfg 复核：
+    #   · BattlePassListCfg 最高 20033（无 20034），20033.activity_id = 4410001
+    #   · ActivityCfg 843 条中 44x 系全在、45x 系 0 条（陪伴服沿用 311 的 44x 生态）
+    #   · MultHeartDemonCfg 期次 4035001..4435005（无 4535xxx）
+    # 旧推定值 battlepass_list_id=20034 / heart_demon=4535001 正是 321 登录洪流
+    # sc_34031/sc_75017 撞 nil 崩溃的根因（PassportData.GetMaxLevel / MultHeartDemonData
+    # 索引不存在条目）——此前误归因为"携带 229 旧 ID"并以整帧抑制掩盖。
     "321": {
         "version": "321",
         "version_name": "v5.3.1",
@@ -139,16 +146,16 @@ VERSION_CONFIGS = {
             "ja": "voice_hash_ja_30700321.bytes",
             "zh": "voice_hash_zh_30700321.bytes",
         },
-        "theme_id": 45,
-        "battlepass_season": 34,
-        "entry_activity_id": 4510001,
-        "sign_activity_id": 4500101,
-        "battlepass_list_id": 20034,
-        "heart_demon_activity_id": 4535001,
-        "core_verification_activity_id": 4543501,
-        "polyhedron_activity_id": 4507301,
+        "theme_id": 44,
+        "battlepass_season": 33,
+        "entry_activity_id": 4410001,
+        "sign_activity_id": 4400101,
+        "battlepass_list_id": 20033,
+        "heart_demon_activity_id": 4435001,
+        "core_verification_activity_id": 4443501,
+        "polyhedron_activity_id": 4407301,
         "deprecated_shops": [16, 18, 24, 25, 34, 35, 36, 37, 42],
-        "description": "v5.3.1 陪伴服末版对齐：assethash 为官方实测名，活动 ID 为 45x 模式暂定。",
+        "description": "v5.3.1 陪伴服末版对齐：assethash/voice 为官方实测名，活动 ID 全部为 321 客户端配置实测值（44x 系）。",
     },
 }
 

@@ -3,17 +3,29 @@
 tests/m1_dispatch_check.py — M1 无头业务回归验证脚本
 
 验证范围：
-1. 段一【397 操作 Schema 签名扫零】：
+1. 段一【397 操作全量调度扫零】：
    - 全量调度 core.OPERATIONS (397个注册操作)，发送空 JSON payload b"{}"；
-   - 监听日志增量，断言 "参数解析失败: schema 文件不存在" 出现次数 == 0；
-   - 统计响应数据源分类 (src) 与 reply 状态。
+   - 【可达断言组】(2026-09-29 整改，取代旧版不可达的拼接签名断言——旧 TARGET_SIG
+     "参数解析失败: schema 文件不存在" 在 b"{}" payload 下永远不可能出现：parse 阶段
+     对 JSON 形状直接 json.loads 短路，schema 错误只发生在 apply 阶段且前缀不同)：
+     a. 无未捕获异常；
+     b. 日志增量中 "schema 文件不存在" 子串 == 0（schema 缺失时实测命中 323 次，
+        是可达且敏感的探针）；
+     c. 调度覆盖数 == 397 且 src 计数非空；
+     d. 任一操作的回包中出现裸退化帧 0801/0809（参数解析失败/执行失败 的 2 字节
+        退化形状，schema 缺失时 306/397 操作退化）即失败。裸 0800/0802/0805 等
+        业务应答码合法（真实基线含 325 个 ≤2 字节业务帧、0 个裸 0801/0809）。
 2. 段二【代表操作深检】：
    - 从真实抓包数据重放关键业务操作 (抽卡 cs_16010/cs_16012, 商城购买 cs_20012, 邮件领取 cs_30008,
      货币/体力购买 cs_15012/cs_15016, 大厅设置 cs_32132)；
    - 断言返回真实业务数据帧 (sc_16011 等且含 result 字段)，区分"业务拒绝"与"参数解析失败"。
-3. 段三【Hero 专项断言】：
+3. 段三【Hero 专项断言】（动态口径，2026-09-29 整改）：
    - 验证 hero_codec.build_hero_payload 生成及 sc_14009 结构；
-   - uid=999999 解码出 15 位英雄，uid=999999998 解码出 20 位英雄。
+   - 期望值 = 该 uid 下 unlock=1 且有 hero 模板的行数（与 generator.gen_23009 同口径），
+     不再硬编码 15/20——旧硬编码会被测试自身的落库副作用破坏（非幂等），且绕开
+     11 个无模板英雄的真实缺口（真机账号 88 行/77 模板）。
+4. 【测试隔离】(2026-09-29 整改)：全程运行在 account.db 的临时副本上，
+   不再污染真实库（旧版反复运行会解锁英雄/消耗货币，已实测破坏过 uid=999999）。
 """
 import json
 import os
@@ -42,7 +54,22 @@ import hero_codec
 import logger
 
 
-TARGET_SIG = "参数解析失败: schema 文件不存在"
+# schema 缺失探针（子串口径，2026-09-29 整改）：schema 文件缺失时该子串在日志增量中
+# 实测命中 323 次（经 "执行失败: schema 文件不存在: <path>" 路径），是可达且敏感的断言。
+# 旧版 TARGET_SIG = "参数解析失败: schema 文件不存在" 为两处拼接、对 b"{}" payload 不可达。
+SCHEMA_MISSING_SIG = "schema 文件不存在"
+# 裸退化帧标志：2 字节 0801/0809。注意 0801 有两种来源：
+#   a. 合法：op 级参数校验对空 payload 的拒绝（下列冻结基线共 29 个，两次独立实测一致）；
+#   b. 退化：schema 缺失/执行异常时大面积塌缩（实测 schema 删除时 306/397 操作变 0801）。
+# 断言口径：bare-0801 的 op 集合必须与冻结基线完全一致——集合扩大即塌缩（schema 失效），
+# 缩小/变动则要求有意识地更新基线（业务语义变化）。0809（执行失败）恒为 0。
+DEGENERATE_RESULT_CODES = (1, 9)
+BASELINE_EMPTY_PARAM_REJECT_OPS = frozenset({
+    14512, 14514, 14516, 24052, 24054, 60054, 61048, 71108, 71114,
+    73012, 73014, 73016, 73018, 73020, 73022, 83009, 83011, 83013,
+    83018, 84332, 84334, 89102, 89116, 89122, 89130, 89402, 89404,
+    89422, 89426,
+})
 DEFAULT_UID = 999999
 
 
@@ -82,6 +109,13 @@ def run_section_1_sweep(core, db):
     src_counter = {}
     reply_counter = {True: 0, False: 0}
     exceptions = []
+    degenerate_frames = []  # (cmd, sc, hex) 裸 0801/0809 退化帧
+
+    def _frame_payload(f):
+        try:
+            return f["payload"] if isinstance(f, dict) else getattr(f, "payload", None)
+        except Exception:
+            return None
 
     print("[*] 开始分发 397 个操作 (payload=b'{}', uid=999999)...")
     for cmd in ops:
@@ -90,6 +124,12 @@ def run_section_1_sweep(core, db):
             resp = core.dispatch(req)
             src_counter[resp.src] = src_counter.get(resp.src, 0) + 1
             reply_counter[resp.reply] = reply_counter.get(resp.reply, 0) + 1
+            for f in (resp.frames or []):
+                pl = _frame_payload(f)
+                if (isinstance(pl, (bytes, bytearray)) and len(pl) == 2
+                        and pl[0] == 0x08 and pl[1] in DEGENERATE_RESULT_CODES):
+                    sc = f["sc"] if isinstance(f, dict) else getattr(f, "cmd", None)
+                    degenerate_frames.append((cmd, sc, bytes(pl).hex()))
         except Exception as e:
             exceptions.append((cmd, str(e)))
 
@@ -97,7 +137,7 @@ def run_section_1_sweep(core, db):
     core.log = original_core_log
 
     # 检查内存中日志
-    mem_sig_hits = [line for line in collected_logs if TARGET_SIG in line]
+    mem_sig_hits = [line for line in collected_logs if SCHEMA_MISSING_SIG in line]
 
     # 检查日志文件增量
     file_sig_hits = 0
@@ -105,20 +145,31 @@ def run_section_1_sweep(core, db):
         with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             f.seek(file_start_pos)
             delta_content = f.read()
-            file_sig_hits = delta_content.count(TARGET_SIG)
+            file_sig_hits = delta_content.count(SCHEMA_MISSING_SIG)
 
     print(f"[*] 分发完成统计:")
     print(f"    - 总分发数: {total_ops}")
     print(f"    - 数据源分类 (src): {dict(src_counter)}")
     print(f"    - 回包语义 (reply): True={reply_counter[True]}, False={reply_counter[False]}")
     print(f"    - 异常未捕获数: {len(exceptions)}")
-    print(f"    - 签名 '{TARGET_SIG}' 命中数 (内存): {len(mem_sig_hits)}")
-    print(f"    - 签名 '{TARGET_SIG}' 命中数 (文件增量): {file_sig_hits}")
+    print(f"    - schema 缺失探针 '{SCHEMA_MISSING_SIG}' 命中: 内存 {len(mem_sig_hits)} / 文件增量 {file_sig_hits}")
+    print(f"    - 裸退化帧 0801/0809: {len(degenerate_frames)} 个")
 
+    # 【可达断言组】2026-09-29 整改：四条均可在失效时真实触发
     assert len(exceptions) == 0, f"存在未捕获异常: {exceptions}"
-    assert len(mem_sig_hits) == 0, f"内存日志检测到签名命中: {mem_sig_hits}"
-    assert file_sig_hits == 0, f"文件增量检测到签名命中: {file_sig_hits} 次"
-    print("[+] 段一通过：397 个操作全部完成调度，schema 缺失签名 100% 归零！")
+    assert len(mem_sig_hits) == 0, f"内存日志检测到 schema 缺失: {mem_sig_hits[:5]}"
+    assert file_sig_hits == 0, f"文件增量检测到 schema 缺失 {file_sig_hits} 次"
+    assert sum(src_counter.values()) == total_ops, (
+        f"调度覆盖不全: src 计数 {src_counter} 总和 != {total_ops}（存在空转/丢包）")
+    bare_0801_ops = {cmd for cmd, _sc, hx in degenerate_frames if hx == "0801"}
+    bare_0809 = [(cmd, sc) for cmd, sc, hx in degenerate_frames if hx == "0809"]
+    assert not bare_0809, f"出现裸 0809 执行失败帧: {bare_0809[:10]}"
+    grown = bare_0801_ops - BASELINE_EMPTY_PARAM_REJECT_OPS
+    assert not grown, (
+        f"{len(grown)} 个操作新退化为裸 0801（schema 缺失/异常塌缩的形状，"
+        f"基线仅 {len(BASELINE_EMPTY_PARAM_REJECT_OPS)} 个空参数拒绝 op）: {sorted(grown)[:15]}")
+    print("[+] 段一通过：零异常、零 schema 缺失、调度全覆盖、退化帧与冻结基线一致 "
+          f"(bare-0801={len(bare_0801_ops)}/{len(BASELINE_EMPTY_PARAM_REJECT_OPS)}, 0809=0)！")
     return {
         "total_ops": total_ops,
         "src_counter": src_counter,
@@ -126,6 +177,7 @@ def run_section_1_sweep(core, db):
         "exceptions": len(exceptions),
         "mem_sig_hits": len(mem_sig_hits),
         "file_sig_hits": file_sig_hits,
+        "degenerate_frames": degenerate_frames,
     }
 
 
@@ -361,45 +413,60 @@ def run_section_2_representative_replay(core, db):
 
 
 def run_section_3_hero_assertions(db):
-    """段三【Hero 专项断言】"""
+    """段三【Hero 专项断言】（动态口径，2026-09-29 整改）
+
+    期望值 = 该 uid 下 unlock=1 且 has_hero_template 的行数（与 generator.gen_23009
+    的 hero_num 同口径）。旧版硬编码 15/20 有两处缺陷：测的两个账号恰好全有模板，
+    绕开了 11 个无模板英雄的真实缺口；且测试落库副作用会逐步解锁英雄使断言失效。
+    现补入真机走查账号 2174928301（88 行/77 模板），使断言对象与被验收事实一致。
+    """
     print("\n" + "=" * 60)
-    print("【段三】Hero 专项断言测试")
+    print("【段三】Hero 专项断言测试（动态口径：unlock=1 ∧ 有模板）")
     print("=" * 60)
 
-    # 1. uid=999999 (默认账号)
-    uid1 = 999999
-    p1 = hero_codec.build_hero_payload(db, uid=uid1)
-    assert p1 is not None, f"uid={uid1} 的 build_hero_payload 返回 None"
-    assert len(p1) > 0, f"uid={uid1} payload 长度为 0"
-    dec1 = _dec(p1, "sc_14009")
-    hlist1 = dec1.get("hero_info_list", [])
-    count1 = len(hlist1)
-    print(f"[*] uid={uid1}: payload 长度={len(p1)} 字节, 包含英雄数={count1}")
-    assert count1 == 15, f"uid={uid1} 期望 15 位英雄，实际获得 {count1} 位"
+    summary = {}
+    for uid in (999999, 999999998, 2174928301):
+        rows = db.query("SELECT id FROM hero WHERE uid=? AND unlock=1", (uid,))
+        expected = sum(1 for r in rows if hero_codec.has_hero_template(r["id"]))
+        assert expected > 0, f"uid={uid} 期望英雄数应 > 0（库中无解锁+有模板的英雄?）"
 
-    # 2. uid=999999998
-    uid2 = 999999998
-    p2 = hero_codec.build_hero_payload(db, uid=uid2)
-    assert p2 is not None, f"uid={uid2} 的 build_hero_payload 返回 None"
-    assert len(p2) > 0, f"uid={uid2} payload 长度为 0"
-    dec2 = _dec(p2, "sc_14009")
-    hlist2 = dec2.get("hero_info_list", [])
-    count2 = len(hlist2)
-    print(f"[*] uid={uid2}: payload 长度={len(p2)} 字节, 包含英雄数={count2}")
-    assert count2 == 20, f"uid={uid2} 期望 20 位英雄，实际获得 {count2} 位"
+        p = hero_codec.build_hero_payload(db, uid=uid)
+        assert p is not None, f"uid={uid} 的 build_hero_payload 返回 None"
+        assert len(p) > 0, f"uid={uid} payload 长度为 0"
+        dec = _dec(p, "sc_14009")
+        count = len(dec.get("hero_info_list", []))
+        print(f"[*] uid={uid}: payload={len(p)}B, 英雄数={count} (期望 {expected}, "
+              f"库 unlock 行={len(rows)}, 无模板跳过={len(rows) - expected})")
+        assert count == expected, (
+            f"uid={uid} 期望 {expected} 位英雄（有模板口径），实际编码 {count} 位——"
+            f"编码数与 gen_23009 hero_num 口径不一致")
+        summary[f"uid_{uid}"] = {"len": len(p), "hero_count": count,
+                                 "rows": len(rows), "expected": expected}
 
-    print("[+] 段三通过：hero 专项断言全部满足 (999999=15 英雄, 999999998=20 英雄)！")
-    return {
-        "uid_999999": {"len": len(p1), "hero_count": count1},
-        "uid_999999998": {"len": len(p2), "hero_count": count2},
-    }
+    print("[+] 段三通过：三个账号编码数均与动态期望一致（含真机账号 2174928301）！")
+    return summary
 
 
 def main():
     print("============================================================")
     print("  Alpha-Persei-Cluster M1 无头业务回归验证 (Task 4)")
     print("============================================================")
-    db = get_db()
+    # 【测试隔离】2026-09-29 整改：全程跑在 account.db 临时副本上。
+    # 旧版直接写真实库：抽卡/购买真实落库，反复运行会解锁英雄/消耗货币
+    # （实测已把 uid=999999 从 15 跑成 16，破坏旧版硬编码断言）。
+    import glob as _glob
+    import shutil as _shutil
+    import tempfile as _tempfile
+    src_db = os.path.join(V5_DIR, "account.db")
+    workdir = os.path.join(REPO_ROOT, "selftest_tmp", "m1_test_db")
+    os.makedirs(workdir, exist_ok=True)
+    tmp_db = os.path.join(workdir, "account.db")
+    _shutil.copy2(src_db, tmp_db)
+    for side in ("-wal", "-shm"):
+        for f in _glob.glob(src_db + side):
+            _shutil.copy2(f, tmp_db + side)
+    print(f"[*] 测试隔离：运行在临时库副本 {tmp_db}")
+    db = get_db(tmp_db)
     core = core_mod.Core(
         db=db,
         generator=_gen,
@@ -416,7 +483,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  回归验证总体结果: ALL PASSED (100% 成功)")
-    print(f"  总耗时: {elapsed:.2f} 秒")
+    print(f"  总耗时: {elapsed:.2f} 秒 | 临时库保留于 {workdir}（重跑自动覆盖）")
     print("============================================================")
     return 0
 

@@ -11,6 +11,7 @@ import time
 import random
 import logging
 import event_bus
+import client_itemcfg
 
 logger = logging.getLogger("inventory_service")
 
@@ -146,6 +147,10 @@ class ItemType:
 # ItemAction.AddItemData 触发 "attempt to index a nil value"，炸断 Lua 网络消息泵
 # （StreamConnection.AsyncUpdate）→ 界面永久转圈；邮件列表渲染同样崩溃（附件不显示）。
 # 实证：id 20/21（曾误标"常规/精准探测凭证"，真实凭证为 5=修正者 / 38=精确）。
+#
+# 【2026-09-29 整改 P1-2】黑名单升级为白名单：发放侧统一走 client_itemcfg.is_client_known_item
+# （ItemCfg ∪ ItemCfg2 共 7,961 id，DB item_catalog 中 1,604 个客户端不存在的 id 全部封类）。
+# 本常量保留仅作历史引用/退化兜底（client_itemcfg 数据文件缺失时的回退集）。
 CLIENT_FATAL_ITEM_IDS = frozenset({20, 21})
 
 
@@ -374,10 +379,10 @@ class InventoryService:
             count = int(item[1]) if len(item) > 1 else 1
             if count <= 0 or iid <= 0:
                 continue
-            if iid in CLIENT_FATAL_ITEM_IDS:
+            if not client_itemcfg.is_client_known_item(iid):
                 logger.warning(
-                    f"[M-1防护] 拒发客户端致命物品 id={iid} (source={source})——"
-                    "该id不存在于客户端ItemCfg，下发将炸断客户端网络泵")
+                    f"[M-1防护] 拒发客户端不存在物品 id={iid} (source={source})——"
+                    "不在 ItemCfg 白名单(7961)，下发将炸断客户端网络泵")
                 continue
 
             itype = cls.classify_item(db, iid)

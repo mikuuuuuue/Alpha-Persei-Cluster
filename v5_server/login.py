@@ -13,6 +13,7 @@ login.py — V5 登录洪流模块（DB 驱动，2026-08-16 大项目阶段2）
 import json
 import os
 import struct
+import sys
 import time
 import zlib
 
@@ -57,18 +58,19 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
     # (Mode 1)；若让它回退到库内 blob，311 会在 CoreVerificationChallengeData.InitTaskInfo
     # 中索引 ActivityCfg[nil] 并卡死大厅 Loading。这里必须跳过整帧，不能返回 None 走 blob 兜底。
     #
-    # 321_LOGIN_FLOOD_GUARD (2026-09-28, 真机探针逐帧定位):
-    # 229 时代洪流帧携带的旧配置 ID 会让 321 客户端 Lua 索引 nil 崩溃，异常沿
-    # StreamConnection:AsyncUpdate 炸断整条登录数据处理链 → 大厅 Loading 永久转圈：
-    #   - sc_34031: battlepass_list_id 在 321 的 GameLevelSetting 无此档 →
-    #     PassportData.GetMaxLevel 索引 nil（PassportAction.UpdateBonusRedPoint 栈崩）
-    #   - sc_75017: open_edition 在 321 心魔配置无此期 →
-    #     MultHeartDemonData.InitMultHeartDemonData→UpdateName 索引 nil
-    # 抑制后实测：199 帧洪流全量处理完毕、客户端主动发业务请求、进入主城（截图
-    # screen_city.png：时迹回赠活动窗"已累计登录121天"）。
+    # 311_LOGIN_FLOOD_GUARD：sc_89013 生成器不感知版本、311 客户端确无对应数据，
+    # 按作者先例对 311 档整帧抑制。
+    # 【2026-09-29 整改 P1-3】撤除 321 档 {34031, 75017} 整帧抑制（c0c7ef0 引入）：
+    #   原归因"229 时代洪流帧携带旧配置 ID"不成立——登录洪流帧按 login_res_version
+    #   动态生成，真实根因是 321 档 version_cfg 的推定值 battlepass_list_id=20034 /
+    #   heart_demon_activity_id=4535001 不存在于 321 客户端配置（实测 BattlePassListCfg
+    #   最高 20033、MultHeartDemonCfg 最高 4435005、ActivityCfg 无 45x 条目）。
+    #   现已按 321 客户端配置实测值修正 res_version_manager（20033/4435001），
+    #   两帧恢复正常下发；撤除后"登录抑制、打开通行证 UI 复崩"的地雷一并消除
+    #   （PassportGetInfoOp cs_34030→sc_34031 与登录同源取值）。
+    #   真机复验：待 321 走查（登录+通行证 UI+心魔入口）确认。
     version_suppressed_cmds = {
         "311": {89013},
-        "321": {34031, 75017},
     }
     # 诊断仪器（默认惰性）：AG_LOGIN_SUPPRESS_CMDS="88305,89013,..." 逗号分隔 cmd 列表，
     # 用于真机"卡大厅 Loading"类故障的洪流帧二分定位；不设置则无影响。
@@ -108,7 +110,7 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
             if cmd in version_suppressed_cmds.get(login_res_version, set()):
                 log(
                     f"[login] version={login_res_version} 跳过不兼容推送 sc_{cmd} "
-                    "(311_CORE_VERIFICATION_GUARD)",
+                    f"({login_res_version}_LOGIN_FLOOD_GUARD)",
                     "INFO",
                 )
                 continue

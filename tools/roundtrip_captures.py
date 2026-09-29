@@ -17,8 +17,8 @@
 8. 输出终端报告并生成详细 Markdown 报告至仓库外（默认 $CAP/M1-roundtrip报告.md）。
 
 用法：
-  python tools/roundtrip_captures.py /c/Users/<user>/Desktop/Alpha-Persei-Captures
-  python tools/roundtrip_captures.py C:/Users/<user>/Desktop/Alpha-Persei-Captures -o output.md
+  python tools/roundtrip_captures.py
+  python tools/roundtrip_captures.py Alpha-Persei-Captures -o output.md
 """
 import argparse
 import glob
@@ -189,7 +189,9 @@ def run_validation(capture_dir: str):
                     msg_name = f"cs_{cmd}"
                     group_key = "cs"
                 elif direction == "down":
-                    cmd = record.get("frame_cmd", record.get("cmd"))
+                    # cmd = transport.unpack_down 还原后的业务 SC 号（flag==1 时 frame_cmd|0x10000），
+                    # frame_cmd 只是裸 u16 回绕值——优先取 cmd，旧 jsonl 无 cmd 时才回退 frame_cmd
+                    cmd = record.get("cmd", record.get("frame_cmd"))
                     msg_name = f"sc_{cmd}"
                     group_key = "sc"
                 else:
@@ -335,11 +337,16 @@ def generate_report_markdown(stats, capture_dir: str) -> str:
     lines.append(f"| **下行 (sc_)** | {cov_sc['total']} | **{cov_sc_dec_r:.2f}%** ({cov_sc['dec_ok']}/{cov_sc['total']}) | **{cov_sc_rt_r:.2f}%** ({cov_sc['rt_ok']}/{cov_sc['total']}) | ≥98% / ≥90% | **PASS** |")
     lines.append(f"| **覆盖层合计** | **{cov_total}** | **{cov_all_dec_r:.2f}%** ({cov_cs['dec_ok']+cov_sc['dec_ok']}/{cov_total}) | **{cov_all_rt_r:.2f}%** ({cov_cs['rt_ok']+cov_sc['rt_ok']}/{cov_total}) | ≥98% / ≥90% | **PASS** |\n")
 
-    lines.append("### 1.2 全量参考层：Raw 全帧表现（含 63 种无定义协议）\n")
+    lines.append("### 1.2 全量参考层：Raw 全帧表现（含 %d 种无定义协议）\n" % len(stats["uncovered_protocols"]))
     lines.append("| 验证维度 | 全量总帧 | 解码成功率 | Roundtrip 一致率 | 状态说明 |")
     lines.append("| :--- | :--- | :--- | :--- | :--- |")
-    lines.append(f"| **上行 (cs_)** | {raw_cs['total']} | **{raw_cs_dec_r:.2f}%** ({raw_cs['dec_ok']}/{raw_cs['total']}) | **{raw_cs_rt_r:.2f}%** ({raw_cs['rt_ok']}/{raw_cs['total']}) | 仅 cs_84332 缺失定义 (1帧) |")
-    lines.append(f"| **下行 (sc_)** | {raw_sc['total']} | **{raw_sc_dec_r:.2f}%** ({raw_sc['dec_ok']}/{raw_sc['total']}) | **{raw_sc_rt_r:.2f}%** ({raw_sc['rt_ok']}/{raw_sc['total']}) | 包含 62 个缺失定义协议 (365帧) |")
+    def _miss_note(group, direction):
+        protos = {n for n in stats["uncovered_protocols"] if n.startswith(group + "_")}
+        frames = sum(v["total"] for (d, _c), v in stats["cmd_stats"].items()
+                     if d == direction and v.get("msg_name") in protos)
+        return f"缺失定义 {len(protos)} 协议 ({frames}帧)" if protos else "无缺失定义"
+    lines.append(f"| **上行 (cs_)** | {raw_cs['total']} | **{raw_cs_dec_r:.2f}%** ({raw_cs['dec_ok']}/{raw_cs['total']}) | **{raw_cs_rt_r:.2f}%** ({raw_cs['rt_ok']}/{raw_cs['total']}) | {_miss_note('cs', 'up')} |")
+    lines.append(f"| **下行 (sc_)** | {raw_sc['total']} | **{raw_sc_dec_r:.2f}%** ({raw_sc['dec_ok']}/{raw_sc['total']}) | **{raw_sc_rt_r:.2f}%** ({raw_sc['rt_ok']}/{raw_sc['total']}) | {_miss_note('sc', 'down')} |")
     lines.append(f"| **全量合计** | **{total}** | **{raw_all_dec_r:.2f}%** ({raw_cs['dec_ok']+raw_sc['dec_ok']}/{total}) | **{raw_all_rt_r:.2f}%** ({raw_cs['rt_ok']+raw_sc['rt_ok']}/{total}) | 全量解码无任何异常 |")
     lines.append("\n> **[决策结论] 门槛全部达标 (PASS)**：")
     lines.append("> 1. **cs_38014 解码与 RT 100% 修复**：`log_net_rec` 成功作用域化绑定至 `p38.log_net_rec`，全部 77 帧解码/RT 均无损通过。")
@@ -439,7 +446,7 @@ def print_console_summary(stats, capture_dir: str, output_file: str):
     print(f"{'下行 (sc_)':<20}{cov_sc['total']:<10}{cov_sc_dec_r:6.2f}% ({cov_sc['dec_ok']}/{cov_sc['total']})    {cov_sc_rt_r:6.2f}% ({cov_sc['rt_ok']}/{cov_sc['total']})    PASS")
     print(f"{'覆盖层合计':<20}{cov_total:<10}{cov_all_dec_r:6.2f}% ({cov_cs['dec_ok']+cov_sc['dec_ok']}/{cov_total})    {cov_all_rt_r:6.2f}% ({cov_cs['rt_ok']+cov_sc['rt_ok']}/{cov_total})    PASS")
     print("=" * 78)
-    print("【第二轨：全量参考层（Raw 全帧，含 63 种无定义协议）】")
+    print("【第二轨：全量参考层（Raw 全帧，含 %d 种无定义协议）】" % len(stats["uncovered_protocols"]))
     print(f"{'上行 (cs_)':<20}{raw_cs['total']:<10}{raw_cs_dec_r:6.2f}% ({raw_cs['dec_ok']}/{raw_cs['total']})    {raw_cs_rt_r:6.2f}% ({raw_cs['rt_ok']}/{raw_cs['total']})")
     print(f"{'下行 (sc_)':<20}{raw_sc['total']:<10}{raw_sc_dec_r:6.2f}% ({raw_sc['dec_ok']}/{raw_sc['total']})    {raw_sc_rt_r:6.2f}% ({raw_sc['rt_ok']}/{raw_sc['total']})")
     print(f"{'全量合计':<20}{total:<10}{raw_all_dec_r:6.2f}% ({raw_cs['dec_ok']+raw_sc['dec_ok']}/{total})    {raw_all_rt_r:6.2f}% ({raw_cs['rt_ok']+raw_sc['rt_ok']}/{total})")
@@ -463,8 +470,8 @@ def main():
     parser.add_argument(
         "capture_dir",
         nargs="?",
-        default="C:/Users/<user>/Desktop/Alpha-Persei-Captures",
-        help="抓包目录路径 (支持 Git Bash /c/... 或 Windows C:/... 格式)",
+        default=os.path.join(REPO_ROOT, "Alpha-Persei-Captures"),
+        help="抓包目录路径 (默认仓库内 Alpha-Persei-Captures/；支持 Git Bash /c/... 或 Windows C:/... 格式)",
     )
     parser.add_argument(
         "-o",
@@ -476,7 +483,9 @@ def main():
 
     norm_cap_dir = normalize_path(args.capture_dir)
     if not os.path.exists(norm_cap_dir):
-        rel_path = os.path.abspath(os.path.join(REPO_ROOT, "..", "Alpha-Persei-Captures"))
+        rel_path = os.path.abspath(os.path.join(REPO_ROOT, "Alpha-Persei-Captures"))
+        if not os.path.exists(rel_path):
+            rel_path = os.path.abspath(os.path.join(REPO_ROOT, "..", "Alpha-Persei-Captures"))
         if os.path.exists(rel_path):
             norm_cap_dir = rel_path
         else:

@@ -19,7 +19,8 @@ from flask import Blueprint, request, jsonify, Response
 
 # 确保 v5_server 内部模块导入正常
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from inventory_service import CLIENT_FATAL_ITEM_IDS
+from inventory_service import CLIENT_FATAL_ITEM_IDS  # 退化兜底用
+import client_itemcfg
 
 try:
     import generator as _gen
@@ -932,10 +933,10 @@ def post_send_mail():
             aid = int(it.get("id") or it.get("item_id") or 0)
             anum = int(it.get("number") or it.get("count") or it.get("num") or 0)
             if aid > 0 and anum > 0:
-                if aid in CLIENT_FATAL_ITEM_IDS:
+                if not client_itemcfg.is_client_known_item(aid):
                     return err(GMErrorCode.PARAM_INVALID,
-                               f"物品 ID {aid} 不存在于客户端 ItemCfg（M-1/M-2 实证致命 id，"
-                               "下发会炸断客户端网络泵）。探测凭证请用 5=修正者 / 38=精确")
+                               f"物品 ID {aid} 不在客户端 ItemCfg 白名单(7961)——"
+                               "下发会炸断客户端网络泵，禁止发送。探测凭证请用 5=修正者 / 38=精确")
                 if (200000 <= aid <= 600000) or (830000 <= aid <= 859999):
                     return err(GMErrorCode.PARAM_INVALID, f"物品 ID {aid} 属于刻印或刻印套装类物品，仅供图鉴展示，禁止通过邮件发送")
                 if aid == 30054 or (1000000000 <= aid <= 2000000000):
@@ -948,10 +949,10 @@ def post_send_mail():
         elif isinstance(it, (list, tuple)) and len(it) >= 2:
             aid, anum = int(it[0]), int(it[1])
             if aid > 0 and anum > 0:
-                if aid in CLIENT_FATAL_ITEM_IDS:
+                if not client_itemcfg.is_client_known_item(aid):
                     return err(GMErrorCode.PARAM_INVALID,
-                               f"物品 ID {aid} 不存在于客户端 ItemCfg（M-1/M-2 实证致命 id，"
-                               "下发会炸断客户端网络泵）。探测凭证请用 5=修正者 / 38=精确")
+                               f"物品 ID {aid} 不在客户端 ItemCfg 白名单(7961)——"
+                               "下发会炸断客户端网络泵，禁止发送。探测凭证请用 5=修正者 / 38=精确")
                 if (200000 <= aid <= 600000) or (830000 <= aid <= 859999):
                     return err(GMErrorCode.PARAM_INVALID, f"物品 ID {aid} 属于刻印或刻印套装类物品，仅供图鉴展示，禁止通过邮件发送")
                 if aid == 30054 or (1000000000 <= aid <= 2000000000):

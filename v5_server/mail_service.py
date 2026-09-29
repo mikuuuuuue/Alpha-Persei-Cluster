@@ -22,6 +22,7 @@ import time
 import logging
 import threading
 from inventory_service import InventoryService, CLIENT_FATAL_ITEM_IDS
+import client_itemcfg
 from event_bus import bus, Events
 
 logger = logging.getLogger("mail_service")
@@ -146,6 +147,11 @@ class MailService:
                         else:
                             continue
                         if aid > 0 and anum > 0:
+                            if not client_itemcfg.is_client_known_item(aid):
+                                # 客户端 ItemCfg 无此 id：列表侧也不下发（旧版会把
+                                # 20/21 等发给 RewardView/CommonItemView 渲染，崩溃
+                                # 路径与领取侧同源），该附件不可领也不可见
+                                continue
                             attachment_list.append({"id": aid, "number": anum})
                 except Exception:
                     pass
@@ -263,6 +269,8 @@ class MailService:
                     else:
                         continue
                     if aid > 0 and num > 0:
+                        if not client_itemcfg.is_client_known_item(aid):
+                            continue  # 列表/详情侧同源过滤（见 get_inbox_list 注释）
                         attachments.append({"id": aid, "number": num})
             except Exception:
                 pass
@@ -311,6 +319,7 @@ class MailService:
         all_items_to_add = []
         claimed_attachments = []
         success_mail_ids = []
+        failed_mail_ids = []
         now_ts = int(time.time())
 
         for m in rows:
@@ -321,6 +330,12 @@ class MailService:
             except Exception:
                 attach_list = []
 
+            # 【2026-09-29 整改 P1-2】按封校验：任一附件 id 不在客户端 ItemCfg 白名单
+            # 则整封拒领（不落 attach_flag、不进 success 列表）。
+            # 旧版仅跳过黑名单 id 后照旧标记"已领取"——玩家被告知成功、附件凭空消失
+            # 且邮件不可再领（静默数据丢失，DB 实证 M1-repro-A/B 附件 21/20 从未入库）。
+            parsed = []
+            bad_ids = []
             for it in attach_list:
                 if isinstance(it, dict):
                     iid = int(it.get("item_id") or it.get("id") or 0)
@@ -331,14 +346,20 @@ class MailService:
                     continue
                 if iid <= 0 or num <= 0:
                     continue
-                if iid in CLIENT_FATAL_ITEM_IDS:
-                    # M-1/M-2 防护：客户端 ItemCfg 无此 id，宣告/下发都会在客户端
-                    # 崩溃（附件图标渲染 / sc_17023 炸断网络泵），跳过且不进应答列表
-                    logger.warning(f"[M-1防护] 邮件 {m_id} 附件含客户端致命 id={iid}，已跳过")
+                if not client_itemcfg.is_client_known_item(iid):
+                    bad_ids.append(iid)
                     continue
+                parsed.append((iid, num))
 
-                all_items_to_add.append((iid, num))
-                claimed_attachments.append({"id": iid, "number": num})
+            if bad_ids:
+                logger.warning(
+                    f"[M-1防护] 邮件 {m_id} 附件含客户端不存在 id={bad_ids}，整封拒领"
+                    f"（保持可领取状态，请用 GM 重发合规附件）")
+                failed_mail_ids.append(m_id)
+                continue
+
+            all_items_to_add.extend(parsed)
+            claimed_attachments.extend({"id": iid, "number": num} for iid, num in parsed)
 
             # 标记该邮件已读且附件已领
             _db.execute(
@@ -358,10 +379,12 @@ class MailService:
         touched_heroes = list(set((summary.get("hero_unlocked") or []) + (summary.get("skins") or [])))
         touched_scene = bool(summary.get("scenes"))
 
-        logger.info(f"uid={uid} 成功领取邮件附件: 邮件数={len(success_mail_ids)} 道具数={len(claimed_attachments)}")
+        logger.info(f"uid={uid} 领取邮件附件: 成功 {len(success_mail_ids)} 封 / 拒领 {len(failed_mail_ids)} 封 "
+                    f"(含客户端不存在附件id)，道具数={len(claimed_attachments)}")
         return {
             "attachment_list": claimed_attachments,
             "success_mail_ids": success_mail_ids,
+            "failed_mail_ids": failed_mail_ids,
             "touched_heroes": touched_heroes,
             "touched_scene": touched_scene
         }

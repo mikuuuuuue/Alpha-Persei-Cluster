@@ -290,6 +290,10 @@ def save_team_from_cs_63000(db, uid, req_data):
         t_idx = _to_int(t.get("team_index"))
         coop_skill = _to_int(t.get("cooperate_unique_skill_id"))
         mimir = t.get("mimir_info")
+        # 【2026-09-29 整改 P2】与 middleware._parse_battle_common 的 M-4 归一化同规则：
+        # schema 标 repeated 时解码为 [{...}]，取首元素而非清零
+        if isinstance(mimir, list):
+            mimir = mimir[0] if mimir else {}
         mimir = mimir if isinstance(mimir, dict) else {}
         mimir_id = _to_int(mimir.get("mimir_id"))
         chip_list = mimir.get("chip_list") or []

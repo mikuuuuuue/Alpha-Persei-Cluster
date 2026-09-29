@@ -2388,12 +2388,19 @@ class MailReceiveOp(Operation):
         return claim_res
 
     def respond(self, result, data, ctx):
+        # 【2026-09-29 整改 P1-2】单封领取被整封拒领（附件含客户端不存在 id）时回
+        # 非 0 result——旧版恒回 result=0 且已把邮件标记已领，客户端据 success 列表
+        # 把邮件置为已领取，附件却从未入库（静默数据丢失）。
+        failed_ids = result.get("failed_mail_ids") or []
+        req_id = int((data or {}).get("id") or (data or {}).get("mail_id") or 0)
+        rc = 1 if (req_id > 0 and req_id in failed_ids) else 0
         payload = ctx.codec_encode("sc_30005", {
-            "result": 0,
+            "result": rc,
             "attachment_list": result["attachment_list"],
             "success_mail_ids": result["success_mail_ids"]
         }) or b"\x08\x00"
-        ctx.log(f"cs_30004 -> 领取邮件附件 count={len(result['success_mail_ids'])} items={result['attachment_list']}")
+        ctx.log(f"cs_30004 -> 领取邮件附件 count={len(result['success_mail_ids'])} items={result['attachment_list']}"
+                + (f" 拒领={failed_ids}" if failed_ids else ""))
 
         extra_frames = []
         # 换装即时推送 sc_14007

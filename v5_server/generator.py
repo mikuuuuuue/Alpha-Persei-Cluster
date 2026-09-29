@@ -76,9 +76,14 @@ def gen_15009(pkt, db, uid):
     last_recover_ts = 0 if last_recover_ts is None else int(last_recover_ts)
     curs = db.get_currency(uid)
     # 编码规则：num>0 全部 + 0 值但属于"需展示"白名单（核心货币/抽卡券必须编码 0 值，确保客户端扣减至 0 时 UI 正确清零）
+    # 【2026-09-29 整改 P1-2】叠加客户端 ItemCfg 白名单过滤：currency 表残留的伪行
+    # （如 id 20/21，num=6）不在客户端 ItemCfg，编码进 sc_15009 属于脏数据下发路径，
+    # 一律不编码（官方抓包 41 个货币 id 100% 在白名单内，过滤不误伤）。
+    import client_itemcfg as _cic
     _ZERO_SHOW = {1, 2, 5, 19, 30, 31, 32, 36, 38, 101, 53029, 53111}
     items = [{"id": r["id"], "num": r["num"]} for r in curs
-             if r.get("num", 0) > 0 or r["id"] in _ZERO_SHOW]
+             if (r.get("num", 0) > 0 or r["id"] in _ZERO_SHOW)
+             and _cic.is_client_known_item(r["id"])]
     obj = {"currency_list": items,
            "last_fatigue_recover_time": last_recover_ts}
     payload = encode("sc_15009", obj)
@@ -1063,8 +1068,12 @@ def gen_payload(cmd, uid=DEFAULT_UID, db=None, **kw):
                 pass
         last_recover_ts = 0 if last_recover_ts is None else int(last_recover_ts)
         # 与 gen_15009 同规则：num>0 全发 + 0 值展示白名单（核心货币/抽卡券必须编码 0 值）
+        # 【2026-09-29 整改 P1-2】同样叠加 ItemCfg 白名单过滤（currency 伪行不下发）
+        import client_itemcfg as _cic2
         _ZERO_SHOW = {1, 2, 5, 19, 30, 31, 32, 36, 38, 101, 53029, 53111}
-        curs = [r for r in db.get_currency(uid) if r.get("num", 0) > 0 or r["id"] in _ZERO_SHOW]
+        curs = [r for r in db.get_currency(uid)
+                if (r.get("num", 0) > 0 or r["id"] in _ZERO_SHOW)
+                and _cic2.is_client_known_item(r["id"])]
         return encode("sc_15009",
                       {"currency_list": [{"id": r["id"], "num": r["num"]} for r in curs],
                        "last_fatigue_recover_time": last_recover_ts})

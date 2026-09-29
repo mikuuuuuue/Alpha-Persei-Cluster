@@ -754,7 +754,11 @@ def register_battle_session(bid, uid, dest=0, activity_id=0, battle_times=1, her
                                  "stage_type": int(stage_type or 0),
                                  "node_id": int(node_id or 0),
                                  "cooperate_skill": int(cooperate_skill or 0),
-                                 "mimir_info": mimir_info if isinstance(mimir_info, dict) else {},
+                                 # 【2026-09-29 整改 P2】与 _parse_battle_common 的 M-4 归一化
+                                 # 同规则：schema 标 repeated 时解码为 [{...}]，取首元素
+                                 # 而非清零（旧版 list 直接变 {}，会静默丢失 mimir 数据）
+                                 "mimir_info": (mimir_info[0] if isinstance(mimir_info, list) and mimir_info
+                                                else mimir_info if isinstance(mimir_info, dict) else {}),
                                  "is_story": bool(is_story),
                                  "ts": time.time()}
         # 只留最近 100 场

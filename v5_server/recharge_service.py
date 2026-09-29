@@ -271,13 +271,19 @@ class RechargeService:
             if is_full or is_upgrade:
                 db.add_currency(uid, 14, 10000)
                 rewards.append({"id": 14, "num": 10000})
-                db.add_item(uid, 2046, 1)
-                rewards.append({"id": 2046, "num": 1})
+                # 【2026-09-29 整改 P1-2】头像框 2046 不在客户端 ItemCfg(7961) 白名单——
+                # 旧版照发会撞 RewardView.ItemCfg[2046] 崩溃路径，跳过入库与奖励宣告
+                import client_itemcfg as _cic
+                if _cic.is_client_known_item(2046):
+                    db.add_item(uid, 2046, 1)
+                    rewards.append({"id": 2046, "num": 1})
+                else:
+                    log("[PAY] 深度合约附赠头像框 2046 不在客户端 ItemCfg 白名单，跳过发放")
                 db.add_item(uid, 41201, 10)
                 rewards.append({"id": 41201, "num": 10})
                 db.add_item(uid, 53193, 5)
                 rewards.append({"id": 53193, "num": 5})
-                log(f"[PAY] 深度合约额外发放: 10级经验(10000) + 头像框2046 + 41201*10 + 53193*5")
+                log(f"[PAY] 深度合约额外发放: 10级经验(10000) + 41201*10 + 53193*5")
 
             # 联动新手活动战令奖励
             try:
