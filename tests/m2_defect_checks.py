@@ -24,7 +24,9 @@ def _setup_temp_db():
     for side in ("-wal", "-shm"):
         for f in glob.glob(src + side):
             shutil.copy2(f, dst + side)
-    from account_db import get_db
+    import account_db as _adb
+    _adb._db = None  # get_db 是进程级单例（首调绑定路径）：重置后本测试绑定新临时库，
+    from account_db import get_db  # 否则上一个用例 rmtree 后残留实例 → unable to open database file
     return get_db(dst), workdir
 
 
@@ -47,9 +49,40 @@ def test_gen_13057_payload():
         assert "type_list" in dec_out, "sc_13057 应含 type_list 字段，实际 %r" % dec_out
         print("[+] gen_13057: %dB, type_list=%r" % (len(out), dec_out.get("type_list")))
     finally:
+        db.close()  # Minor 修复：win32 下先关 SQLite 连接再删目录，否则 rmtree 静默泄漏临时目录
+        shutil.rmtree(_wd, ignore_errors=True)
+
+
+def test_on_polyhedron_pass_ctx_none():
+    # 现状红：ctx=None → AttributeError('NoneType' has no 'db')，被 emit 沙箱吞掉
+    import task_listener
+    task_listener.on_polyhedron_pass(None, 999999, times=1)  # 不得抛异常
+    print("[+] ctx=None 容忍通过")
+
+
+def test_on_polyhedron_pass_advances_cond423():
+    import types
+    import task_listener
+    db, _wd = _setup_temp_db()
+    try:
+        FRESH_UID = 888001  # 无任务行的全新 uid，触发"按需激活老账号缺省任务"
+        # 偏离 brief 逐字稿 +1 行：_trigger_task_condition 的按需激活白名单
+        # (task_listener.py WHERE 子句) 不含 423，无 task 行时 cond=423 行被过滤；
+        # 生产玩家经登录/章节流程持有 task 行，此处种子化复刻生产态使断言可达。
+        db.execute("INSERT OR IGNORE INTO task (uid, task_id, progress) VALUES (888001, 100007, 0)")
+        task_listener.on_polyhedron_pass(types.SimpleNamespace(db=db), FRESH_UID, times=1)
+        rows = db.query(
+            "SELECT task_id, progress FROM task WHERE uid=? AND task_id=100007", (FRESH_UID,))
+        assert rows and int(rows[0]["progress"]) >= 1, \
+            "cond=423 任务 100007 应推进到 ≥1，实际 %r（task_cfg 无 423 行则改断言仅返回无异常）" % rows
+        print("[+] 100007 progress=%s" % rows[0]["progress"])
+    finally:
+        db.close()  # Minor 修复：同上，先关连接再删临时目录
         shutil.rmtree(_wd, ignore_errors=True)
 
 
 if __name__ == "__main__":
     test_gen_13057_payload()
+    test_on_polyhedron_pass_ctx_none()
+    test_on_polyhedron_pass_advances_cond423()
     print("ALL PASSED")

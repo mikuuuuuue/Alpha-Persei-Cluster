@@ -823,10 +823,11 @@ class PolyhedronRunManager:
 
         # 广播多维变量终局结算事件（驱动成就系统实时弹窗）
         try:
+            import types as _types
             import event_bus
             event_bus.bus.emit(
                 event_bus.Events.POLYHEDRON_PASS,
-                None,
+                _types.SimpleNamespace(db=db),  # settle_run 仅有 db；_push_task_diff 对缺省属性自带兜底
                 uid,
                 difficulty=difficulty,
                 artifacts=artifacts,
