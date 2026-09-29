@@ -65,7 +65,7 @@ def test_on_polyhedron_pass_advances_cond423():
     import task_listener
     db, _wd = _setup_temp_db()
     try:
-        FRESH_UID = 888001  # 无任务行的全新 uid，触发"按需激活老账号缺省任务"
+        FRESH_UID = 888001
         # 偏离 brief 逐字稿 +1 行：_trigger_task_condition 的按需激活白名单
         # (task_listener.py WHERE 子句) 不含 423，无 task 行时 cond=423 行被过滤；
         # 生产玩家经登录/章节流程持有 task 行，此处种子化复刻生产态使断言可达。
