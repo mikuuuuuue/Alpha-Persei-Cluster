@@ -21,7 +21,7 @@ import json
 import time
 import logging
 import threading
-from inventory_service import InventoryService
+from inventory_service import InventoryService, CLIENT_FATAL_ITEM_IDS
 from event_bus import bus, Events
 
 logger = logging.getLogger("mail_service")
@@ -330,6 +330,11 @@ class MailService:
                 else:
                     continue
                 if iid <= 0 or num <= 0:
+                    continue
+                if iid in CLIENT_FATAL_ITEM_IDS:
+                    # M-1/M-2 防护：客户端 ItemCfg 无此 id，宣告/下发都会在客户端
+                    # 崩溃（附件图标渲染 / sc_17023 炸断网络泵），跳过且不进应答列表
+                    logger.warning(f"[M-1防护] 邮件 {m_id} 附件含客户端致命 id={iid}，已跳过")
                     continue
 
                 all_items_to_add.append((iid, num))

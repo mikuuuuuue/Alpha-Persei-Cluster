@@ -1058,7 +1058,12 @@ def _parse_battle_common(req, ctx):
             out["battle_times"] = int(ci.get("battle_times") or 1)
             out["type"] = int(ci.get("type") or 0)
             out["cooperate_skill"] = int(ci.get("cooperate_unique_skill_id") or 0)
-            out["mimir_info"] = ci.get("mimir_info")
+            # schema 标注 mimr_info 为 repeated，解码得 [{...}]；消费方按单个 dict 取值，
+            # 统一在解析口归一化（321 实测 cs_54030 携 1 条 mimir 记录）
+            _mi = ci.get("mimir_info")
+            if isinstance(_mi, list):
+                _mi = _mi[0] if _mi else None
+            out["mimir_info"] = _mi
             for h in (ci.get("hero_list") or []):
                 # 实测（两次失败抓包 cs_54030）hero_list[].hero_base_info 是裸 varint
                 # hero_id（schema 标注的嵌套 hero_base_net_rec 与线上格式不符），两种都兼容
@@ -2428,6 +2433,8 @@ def h_63006(req, ctx):
                 if not heroes:
                     continue
                 mi = t.get("mimir_info") or {}
+                if isinstance(mi, list):  # 同 cs_54030：repeated 解码归一化
+                    mi = mi[0] if mi else {}
                 _TS.get_instance().record_stage_team(
                     ctx, req.uid, stage_type, 0,
                     heroes=heroes,

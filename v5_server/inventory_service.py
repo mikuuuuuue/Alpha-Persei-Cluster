@@ -141,6 +141,14 @@ class ItemType:
     MATERIAL = "material"
 
 
+# 客户端致命 id 拒发集（M-1/M-2 根因，2026-09-29 真机探针确诊）：
+# 这些 id 不存在于客户端 ItemCfg（229 全集 7,961 亦无），下发 sc_17023 会在客户端
+# ItemAction.AddItemData 触发 "attempt to index a nil value"，炸断 Lua 网络消息泵
+# （StreamConnection.AsyncUpdate）→ 界面永久转圈；邮件列表渲染同样崩溃（附件不显示）。
+# 实证：id 20/21（曾误标"常规/精准探测凭证"，真实凭证为 5=修正者 / 38=精确）。
+CLIENT_FATAL_ITEM_IDS = frozenset({20, 21})
+
+
 COSMETIC_KIND_MAP = {
     11: "portrait",
     12: "icon_frame",
@@ -365,6 +373,11 @@ class InventoryService:
             iid = int(item[0])
             count = int(item[1]) if len(item) > 1 else 1
             if count <= 0 or iid <= 0:
+                continue
+            if iid in CLIENT_FATAL_ITEM_IDS:
+                logger.warning(
+                    f"[M-1防护] 拒发客户端致命物品 id={iid} (source={source})——"
+                    "该id不存在于客户端ItemCfg，下发将炸断客户端网络泵")
                 continue
 
             itype = cls.classify_item(db, iid)
