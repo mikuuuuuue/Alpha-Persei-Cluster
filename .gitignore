@@ -90,3 +90,6 @@ v5_server/cdn_cache/
 # 抓包数据与安装包（NCR-1.0 / README §十：不入 git；2026-09-29 从桌面迁入仓库目录）
 /Alpha-Persei-Captures/
 /Alpha-Persei-Assets/
+
+# M2.2 冒烟产物（min_params 为官方帧解码衍生，NCR-1.0 不入库；由 tools/gen_min_params.py 再生）
+tests/min_params.json
