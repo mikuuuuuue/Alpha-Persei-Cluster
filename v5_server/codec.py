@@ -56,6 +56,25 @@ def _ensure_schema():
         if "sc_49001" in ds.SCHEMA and 1 in ds.SCHEMA["sc_49001"]:
             ds.SCHEMA["sc_49001"][1]["ref"] = "p49_chess_map_net_rec"
 
+        # sc_24065：321 官方实测结构与 229 提取定义不符（M2 差分核实）。
+        # 证据：Alpha-Persei-Captures 3 帧——f1 wire2 内嵌(节点事件, 内层 repeated varint)，
+        #       f2 wire2, f3=102, f4=302, f5=210。直赋值恒以内联为准（覆盖文件 schema）。
+        # 标签偏离 brief 逐字稿：321 提取定义与 229 基线相同（无可佐证字段名，保持证据化命名），
+        # 但 wire 穷举显示顶层 f3/f4/f5 为多次出现的 varint（67/13/21 次，值域 101~313，
+        # 与 account_db.chapter_v2_map_node 来源组 f3/f4/f5 行化口径一致）——
+        # optional 会因"最后一值胜出"丢 239 字节致 RT 必败，故按帧证据标 repeated。
+        ds.SCHEMA["sc_24065"] = {
+            1: {"name": "node_event_list", "number": 1, "type": "message", "label": "required", "ref": "chapter_v2_map_node_rec"},
+            2: {"name": "ext_data", "number": 2, "type": "bytes", "label": "optional", "ref": None},
+            3: {"name": "chapter_id", "number": 3, "type": "uint32", "label": "repeated", "ref": None},
+            4: {"name": "cur_node_id", "number": 4, "type": "uint32", "label": "repeated", "ref": None},
+            5: {"name": "state", "number": 5, "type": "uint32", "label": "repeated", "ref": None},
+        }
+        ds.SCHEMA.setdefault("chapter_v2_map_node_rec", {
+            4: {"name": "node_ids", "number": 4, "type": "uint32", "label": "repeated", "ref": None},
+            7: {"name": "event_ids", "number": 7, "type": "uint32", "label": "repeated", "ref": None},
+        })
+
         ds.SCHEMA.setdefault("cs_49002", {
             1: {"name": "chapter_id", "number": 1, "type": "uint32", "label": "required", "ref": None},
         })
