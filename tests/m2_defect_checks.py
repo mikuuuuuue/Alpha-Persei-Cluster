@@ -81,8 +81,62 @@ def test_on_polyhedron_pass_advances_cond423():
         shutil.rmtree(_wd, ignore_errors=True)
 
 
+def test_gen_cert_existing_check_verifies_leaf():
+    import tempfile
+    import gen_cert
+    from cryptography import x509 as cx
+    from cryptography.hazmat.primitives.asymmetric import padding as _pad
+
+    def _leaf_ok(ca_p, leaf_p):
+        ca = cx.load_pem_x509_certificate(open(ca_p, "rb").read())
+        leaf = cx.load_pem_x509_certificate(open(leaf_p, "rb").read())
+        ca.public_key().verify(leaf.signature, leaf.tbs_certificate_bytes,
+                               _pad.PKCS1v15(), leaf.signature_hash_algorithm)
+        return True
+
+    with tempfile.TemporaryDirectory(prefix="m2_cert_") as td:
+        assert gen_cert.generate_dual_layer_certs(output_dir=td, log=lambda *a, **k: None)
+        assert _leaf_ok(os.path.join(td, "sdk_ca.crt"), os.path.join(td, "sdk_cert.pem"))
+        # 篡改叶子（复现 09-27 交错写形态：截断重签不可能，直接破坏字节）
+        leaf = os.path.join(td, "sdk_cert.pem")
+        data = bytearray(open(leaf, "rb").read())
+        data[len(data) // 2] ^= 0xFF
+        open(leaf, "wb").write(bytes(data))
+        # 无 force 复检：现状红——EXISTING 只看 CA 有效期，返回 True 保留坏叶子
+        assert gen_cert.generate_dual_layer_certs(output_dir=td, log=lambda *a, **k: None)
+        # 坏叶子必须被识别并重造（重造后恢复可验签）
+        assert _leaf_ok(os.path.join(td, "sdk_ca.crt"), leaf), \
+            "EXISTING 检查放过了与 CA 不匹配的叶子证书"
+    print("[+] 叶子验签检查通过")
+
+
+def test_gen_cert_concurrent_atomicity():
+    import threading
+    import tempfile
+    import gen_cert
+    errs = []
+
+    def worker(td, i):
+        try:
+            assert gen_cert.generate_dual_layer_certs(
+                output_dir=td, log=lambda *a, **k: None)
+        except Exception as e:
+            errs.append("worker%d: %r" % (i, e))
+
+    with tempfile.TemporaryDirectory(prefix="m2_certc_") as td:
+        ts = [threading.Thread(target=worker, args=(td, i)) for i in range(2)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        assert not errs, "并发生成异常: %r" % errs
+        leftovers = [f for f in os.listdir(td) if f.endswith(".tmp")]
+        assert not leftovers, "残留临时文件: %r" % leftovers
+    print("[+] 并发原子性通过")
+
+
 if __name__ == "__main__":
     test_gen_13057_payload()
     test_on_polyhedron_pass_ctx_none()
     test_on_polyhedron_pass_advances_cond423()
+    test_gen_cert_existing_check_verifies_leaf()
+    test_gen_cert_concurrent_atomicity()
     print("ALL PASSED")
