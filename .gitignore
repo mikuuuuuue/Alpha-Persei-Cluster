@@ -82,3 +82,7 @@ linux_generated/
 /v5_server/runtime/
 /v5_server/cdn_cache/
 *.json.lock
+
+# M2 local test inputs and certificate generation state
+/tests/min_params.json
+/v5_server/.certgen.lock

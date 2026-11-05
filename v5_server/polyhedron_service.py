@@ -751,7 +751,7 @@ class PolyhedronRunManager:
         return run_data
 
     @classmethod
-    def settle_run(cls, uid, db):
+    def settle_run(cls, uid, db, ctx):
         """cs_18018 / 终局通关 -> 动态计算发放历程经验(45)、多维终端经验(46)、对局积分(29)"""
         run_data = cls.load_run(uid, db)
         now = int(time.time())
@@ -826,7 +826,7 @@ class PolyhedronRunManager:
             import event_bus
             event_bus.bus.emit(
                 event_bus.Events.POLYHEDRON_PASS,
-                None,
+                ctx,
                 uid,
                 difficulty=difficulty,
                 artifacts=artifacts,

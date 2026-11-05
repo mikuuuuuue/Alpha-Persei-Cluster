@@ -6789,7 +6789,7 @@ class PolyhedronRewardOp(Operation):
         run_data = PolyhedronRunManager.select_reward(self.uid, ctx.db, idx)
         end_info = None
         if run_data and run_data.get("state") == 3:
-            end_info = PolyhedronRunManager.settle_run(self.uid, ctx.db)
+            end_info = PolyhedronRunManager.settle_run(self.uid, ctx.db, ctx=ctx)
         return {"result": 0, "run_data": run_data, "end_info": end_info}
 
     def respond(self, result, data, ctx):
@@ -6849,7 +6849,7 @@ class PolyhedronSettleQueryOp(Operation):
     sc = 18019
 
     def apply(self, data, ctx):
-        end_info = PolyhedronRunManager.settle_run(self.uid, ctx.db)
+        end_info = PolyhedronRunManager.settle_run(self.uid, ctx.db, ctx=ctx)
         return {"result": 0, "end_info": end_info}
 
     def respond(self, result, data, ctx):
