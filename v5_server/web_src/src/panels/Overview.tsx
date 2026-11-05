@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Clock,
   Copy,
-  Layers,
   Maximize2,
   RefreshCw,
   Server,
@@ -29,7 +28,11 @@ import {
 import { today, getLocalTimeZone, CalendarDate } from '@internationalized/date'
 import { PageHeader, Section, StatCard, StatusDot, type Tone } from '../components/kit'
 import { useServer } from '../lib/serverContext'
-import { fetchOverviewLogs, fetchOverviewMetrics, type ModuleMountStatus } from '../lib/api'
+import {
+  fetchOverviewLogs,
+  fetchOverviewMetrics,
+  type ModuleMountStatus,
+} from '../lib/api'
 
 interface MetricPoint {
   time: string
@@ -97,27 +100,7 @@ const fallbackModules: ModuleMountStatus[] = [
 ]
 
 export default function OverviewPanel() {
-  const { status, isOnline, loading, refreshStatus, resVersionInfo, resVersionLoading, switchVersion } = useServer()
-  const [switchingVersion, setSwitchingVersion] = useState<string | null>(null)
-  const [switchNotice, setSwitchNotice] = useState<string>('')
-
-  const handleSwitchVersion = async (targetVer: string) => {
-    if (!isOnline || resVersionLoading || switchingVersion) return
-    if (resVersionInfo?.current_version === targetVer) return
-    setSwitchingVersion(targetVer)
-    try {
-      const ok = await switchVersion(targetVer)
-      if (ok) {
-        setSwitchNotice(`已切换为 ${targetVer} 版本 (下次客户端启动更新生效)`)
-      } else {
-        setSwitchNotice('切换失败，请检查服务状态')
-      }
-      setTimeout(() => setSwitchNotice(''), 4000)
-    } finally {
-      setSwitchingVersion(null)
-    }
-  }
-
+  const { status, isOnline, loading, refreshStatus } = useServer()
   // 1. 顶部四大窗口链路与运行时长计算
   const sdkLink = !isOnline
     ? { state: 'unstarted', desc: '8102 网关 / 443 HTTPS · 未启动' }
@@ -523,7 +506,7 @@ export default function OverviewPanel() {
       />
 
       {/* 1. 上方四窗口 */}
-      <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid auto-rows-fr gap-4 md:grid-cols-3">
         {/* 窗口 1: SDK网关链路状态 */}
         <StatCard
           label="SDK网关链路状态"
@@ -557,73 +540,7 @@ export default function OverviewPanel() {
           deltaNote={!isOnline ? 'server未启动' : '本地连续运行 / 累计时长'}
         />
 
-        {/* 窗口 4: 客户端资源版本分发与热切换 */}
-        <Card className="p-5 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-foreground">客户端资源分发</span>
-                <Chip
-                  size="sm"
-                  variant="soft"
-                  color={resVersionInfo?.current_version === '311' ? 'accent' : 'success'}
-                >
-                  <Chip.Label>
-                    {resVersionInfo?.current_version === '311' ? 'Build 311' : 'Build 229'}
-                  </Chip.Label>
-                </Chip>
-              </div>
-              <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-surface-secondary text-foreground">
-                <Layers className="size-4" />
-              </span>
-            </div>
 
-            {/* 版本切换分段按钮 */}
-            <div className="mt-3 grid grid-cols-2 gap-1.5 rounded-xl bg-surface-secondary/70 p-1 border border-separator/40">
-              <Button
-                size="sm"
-                variant={resVersionInfo?.current_version !== '311' ? 'secondary' : 'ghost'}
-                className="text-xs h-7 gap-1 font-mono font-medium"
-                isDisabled={!isOnline || resVersionLoading || switchingVersion !== null}
-                onPress={() => handleSwitchVersion('229')}
-              >
-                {switchingVersion === '229' ? (
-                   <RefreshCw className="size-3 animate-spin" />
-                ) : resVersionInfo?.current_version !== '311' ? (
-                  <Check className="size-3 text-success" />
-                ) : null}
-                Build 229
-              </Button>
-              <Button
-                size="sm"
-                variant={resVersionInfo?.current_version === '311' ? 'secondary' : 'ghost'}
-                className="text-xs h-7 gap-1 font-mono font-medium"
-                isDisabled={!isOnline || resVersionLoading || switchingVersion !== null}
-                onPress={() => handleSwitchVersion('311')}
-              >
-                {switchingVersion === '311' ? (
-                  <RefreshCw className="size-3 animate-spin" />
-                ) : resVersionInfo?.current_version === '311' ? (
-                  <Check className="size-3 text-secondary" />
-                ) : null}
-                Build 311
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-2.5">
-            {switchNotice ? (
-              <div className="text-[11px] font-medium text-accent truncate">{switchNotice}</div>
-            ) : (
-              <div className="flex items-center justify-between text-[11px] text-muted">
-                <span className="truncate font-mono">
-                  Hash: {resVersionInfo?.asset_hash ? resVersionInfo.asset_hash.slice(0, 10) + '...' : '1999279163...'}
-                </span>
-                <span className="shrink-0 text-foreground/70">iOS · PC · Android</span>
-              </div>
-            )}
-          </div>
-        </Card>
       </div>
 
       {/* 2 & 3. 中间行：左侧服务模块挂载矩阵，右侧本月签到日历 */}
@@ -1149,6 +1066,8 @@ export default function OverviewPanel() {
           </Modal.Container>
         </Modal.Backdrop>
       </Modal.Root>
+
+
     </div>
   )
 }

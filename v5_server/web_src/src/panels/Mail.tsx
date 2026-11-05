@@ -117,13 +117,13 @@ function highlightMatch(text: string, query: string) {
 // 快捷追加常用调试资产
 const QUICK_PRESETS = [
   { id: 1, name: '移转之辉', count: 1000 },
-  { id: 2, name: '艾因索菲币', count: 100000 },
-  { id: 3, name: '友情点', count: 10 },
-  { id: 5, name: '修正者探测凭证', count: 10 },
-  { id: 41710, name: '誓约之戒', count: 1 },
-  { id: 40101, name: '初级作战记录', count: 5 },
-  { id: 40801, name: '二星启示录', count: 20 },
-  { id: 41301, name: '次级权能因子', count: 10 },
+  { id: 2, name: '精准探测凭证', count: 10 },
+  { id: 3, name: '常规探测凭证', count: 10 },
+  { id: 5, name: '艾因索菲币', count: 100000 },
+  { id: 41710, name: '纯金誓约之戒', count: 1 },
+  { id: 40101, name: '特供体力药剂', count: 5 },
+  { id: 40801, name: '高级作战记录', count: 20 },
+  { id: 41301, name: '源质结晶', count: 10 },
 ]
 
 export default function MailPanel() {

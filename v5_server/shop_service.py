@@ -24,8 +24,10 @@ from middleware import DownFrame
 from event_bus import bus, Events
 from inventory_service import InventoryService, ItemType
 from core import OperationError
-from lazy_timer import get_daily_5am_ts, get_weekly_mon_5am_ts, get_monthly_5am_ts
+from lazy_timer import get_daily_5am_ts, get_weekly_mon_5am_ts, get_monthly_5am_ts, get_next_monthly_5am_ts
 from periodic_gift_service import PeriodicGiftService
+from enchant_slots_util import normalize_enchant_slots
+from operation_notifications import checkpoint_notifications, restore_notifications
 
 logger = logging.getLogger("shop_service")
 
@@ -254,6 +256,7 @@ class ShopService:
                 """, (uid, json.dumps(rolled_goods), now_ts, now_ts))
             except Exception as e:
                 logger.error(f"[ShopService] 保存 user_daily_shop 失败: {e}")
+                raise
 
         return rolled_goods
 
@@ -277,7 +280,7 @@ class ShopService:
 
     # ==================== 3. 规范化协议下行数据组装 ====================
 
-    def get_shop_cfg_payload(self):
+    def get_shop_cfg_payload(self, res_version=None):
         """
         动态生成全量商店配置数据（sc_20007）：
         1. 严格白名单隔离：仅包含付费/补给/皮肤等动态商店，普通代币商店（2, 10..41）绝不下发；
@@ -383,9 +386,12 @@ class ShopService:
             s["goods_list"] = new_glist
             out_shop_cfg_list.append(s)
 
-        return {"shop_item_cfg_list": out_shop_cfg_list}
+        from skin_draw_service import merge_ticket_shop_config
+        from activity_content_service import filter_static_shop_config
+        return {"shop_item_cfg_list": filter_static_shop_config(
+            merge_ticket_shop_config(out_shop_cfg_list, res_version), res_version)}
 
-    def get_shop_data_payload(self, uid):
+    def get_shop_data_payload(self, uid, res_version=None):
         """
         动态生成全量 116+ 商店购买状态与限购数据（sc_20009）：
         1. Shop 2（每日采购）：绑定当前已抽取的 13 槽位商品列表及已刷新次数；
@@ -472,7 +478,10 @@ class ShopService:
                 "is_need_tag": int(s.get("is_need_tag") or 0)
             })
 
-        return {"shop_item_list": out_shops}
+        from skin_draw_service import merge_ticket_shop_states
+        from activity_content_service import merge_shop_states
+        return {"shop_item_list": merge_ticket_shop_states(
+            merge_shop_states(out_shops, self.db, uid, res_version), self.db, uid, res_version)}
 
     def get_single_shop_payload(self, uid, shop_id):
         """获取单个商店的变动信息（sc_20005 changed_shop_info）"""
@@ -552,12 +561,16 @@ class ShopService:
                     })
                     seen_gids.add(gid)
 
-        return {"changed_shop_info": {
+        shop_state = {
             "shop_id": sid,
             "refresh_times": int(target_shop.get("refresh_times") or 0) if target_shop else 0,
             "goods_list": goods_list,
             "is_need_tag": int(target_shop.get("is_need_tag") or 0) if target_shop else 0
-        }}
+        }
+        from skin_draw_service import merge_ticket_shop_states
+        from activity_content_service import merge_shop_states
+        states = merge_ticket_shop_states(merge_shop_states([shop_state], self.db, uid), self.db, uid)
+        return {"changed_shop_info": next(s for s in states if s['shop_id'] == sid)}
 
     # ==================== 4. 购买核心业务引擎 (buy_goods) ====================
 
@@ -620,6 +633,19 @@ class ShopService:
         return {cid: total}
 
     def buy_goods(self, ctx, uid, shop_id, buy_goods_list, buy_source=0):
+        """直接服务调用也与Core一样，保证费用、赠品、履约和限购同一事务。"""
+        db = getattr(ctx, "db", None) or self.db
+        if db is None or self.db is not db:
+            raise OperationError(9, "商店数据库上下文不一致")
+        checkpoint = checkpoint_notifications(ctx)
+        try:
+            with db.transaction():
+                return self._buy_goods(ctx, uid, shop_id, buy_goods_list, buy_source)
+        except BaseException:
+            restore_notifications(ctx, checkpoint)
+            raise
+
+    def _buy_goods(self, ctx, uid, shop_id, buy_goods_list, buy_source=0):
         """
         商城物品购买统一引擎：
         1. 严格校验阶梯前置 (pre_goods_id)、限购与库存；
@@ -643,6 +669,14 @@ class ShopService:
         cost_items = []
         touched_heroes = set()
         touched_scene = False
+        granted_equips = []
+        purchase_counts = {}
+        has_ticket_purchase = False
+
+        def grant_shop_items(item_list, source):
+            summary = InventoryService.grant_items(ctx, uid, item_list, source=source)
+            granted_equips.extend(summary.get("equips") or [])
+            return summary
 
         for b in buy_goods_list:
             gid = int(b.get("buy_id") or b.get("goods_id") or 0)
@@ -654,6 +688,7 @@ class ShopService:
             g = self._find_goods_cfg(gid, sid)
             if not g:
                 raise OperationError(406, f"商品 {gid} 未配置或不在货架")
+            has_ticket_purchase = has_ticket_purchase or bool(g.get('_skin_draw_ticket'))
 
             dj = {}
             if isinstance(g.get("detail_json"), str):
@@ -714,7 +749,7 @@ class ShopService:
                         raise OperationError(402, f"仓库已持有该换装兑换券，不可重复购买")
 
             # 3. 计算价格与扣款
-            client_cost_items = b.get("cost_items") or []
+            client_cost_items = [] if g.get('_skin_draw_ticket') else (b.get("cost_items") or [])
             if client_cost_items:
                 for c in client_cost_items:
                     cid = int(c.get("id") or 0)
@@ -784,11 +819,14 @@ class ShopService:
                 imme_items = periodic_cfg.get("imme_items") or []
                 for rw_id, rw_cnt in imme_items:
                     total_give = int(rw_cnt) * buy_num
-                    InventoryService.grant_items(ctx, uid, [(rw_id, total_give)], source="periodic_gift_imme")
+                    grant_shop_items([(rw_id, total_give)], source="periodic_gift_imme")
                     give_items.append({"item_id": rw_id, "item_num": total_give})
 
-                # 广播 PERIODIC_GIFT_BUY 事件，由 PeriodicGiftService 激活生命周期并立即派发首日邮件
+                # 订阅及首日邮件是必要交付，必须向购买事务传播失败。
                 actual_desc_id = int(periodic_cfg.get("id") or desc_target or item_target or gid)
+                if pg_svc.on_gift_buy(ctx, uid, gid, actual_desc_id, buy_num) is not True:
+                    raise OperationError(9, "周期礼包必要履约失败")
+                # 只通知可选观察者；旧激活订阅已解除，不能再次创建订阅。
                 bus.emit(
                     Events.PERIODIC_GIFT_BUY,
                     ctx,
@@ -810,7 +848,7 @@ class ShopService:
                             already_owned = bool(existing)
                         if already_owned:
                             # 礼包内重复皮肤自动分解为 1000 移转之辉 (ID 1)
-                            InventoryService.grant_items(ctx, uid, [(1, 1000 * total_give)], source="skin_duplicate_breakdown")
+                            grant_shop_items([(1, 1000 * total_give)], source="skin_duplicate_breakdown")
                             give_items.append({"item_id": 1, "item_num": 1000 * total_give})
                         else:
                             if self.db:
@@ -827,7 +865,7 @@ class ShopService:
                             already_owned = bool(existing)
                         if already_owned:
                             # 礼包内重复场景自动分解为 500 移转之辉 (ID 1)
-                            InventoryService.grant_items(ctx, uid, [(1, 500 * total_give)], source="scene_duplicate_breakdown")
+                            grant_shop_items([(1, 500 * total_give)], source="scene_duplicate_breakdown")
                             give_items.append({"item_id": 1, "item_num": 500 * total_give})
                         else:
                             if self.db:
@@ -837,7 +875,7 @@ class ShopService:
                             touched_scene = True
                             give_items.append({"item_id": rw_id, "item_num": total_give})
                     else:
-                        InventoryService.grant_items(ctx, uid, [(rw_id, total_give)], source="shop_buy")
+                        grant_shop_items([(rw_id, total_give)], source="shop_buy")
                         give_items.append({"item_id": rw_id, "item_num": total_give})
             elif target_scene:
                 # 单独场景解锁与重复获取分解检测
@@ -847,7 +885,7 @@ class ShopService:
                     already_owned = bool(existing)
                 if already_owned:
                     # 重复场景自动分解为 500 移转之辉 (ID 1)
-                    InventoryService.grant_items(ctx, uid, [(1, 500 * give_num)], source="scene_duplicate_breakdown")
+                    grant_shop_items([(1, 500 * give_num)], source="scene_duplicate_breakdown")
                     give_items.append({"item_id": 1, "item_num": 500 * give_num})
                 else:
                     if self.db:
@@ -865,7 +903,7 @@ class ShopService:
                     already_owned = bool(existing)
                 if already_owned:
                     # 重复皮肤自动分解为 1000 移转之辉 (ID 1)
-                    InventoryService.grant_items(ctx, uid, [(1, 1000 * give_num)], source="skin_duplicate_breakdown")
+                    grant_shop_items([(1, 1000 * give_num)], source="skin_duplicate_breakdown")
                     give_items.append({"item_id": 1, "item_num": 1000 * give_num})
                 else:
                     if self.db:
@@ -878,16 +916,18 @@ class ShopService:
             else:
                 real_target = item_target or give_target or desc_target
                 if real_target:
-                    InventoryService.grant_items(ctx, uid, [(real_target, give_num)], source="shop_buy")
+                    grant_shop_items([(real_target, give_num)], source="shop_buy")
                     give_items.append({"item_id": real_target, "item_num": give_num})
 
             # 5. 更新限购记录 store_purchase
-            if refresh_cycle == 4:
+            if g.get('_skin_draw_ticket'):
+                nr_ts = 0
+            elif refresh_cycle == 4:
                 nr_ts = tomorrow_5am
             elif refresh_cycle == 3:
                 nr_ts = get_weekly_mon_5am_ts(now) + 604800
             elif refresh_cycle == 2:
-                nr_ts = get_monthly_5am_ts(now) + 86400 * 31
+                nr_ts = get_next_monthly_5am_ts(now)
             elif refresh_cycle > 0:
                 nr_ts = now + refresh_cycle * 86400
             else:
@@ -907,11 +947,15 @@ class ShopService:
                     },
                     keys=("uid", "shop_id", "goods_id"),
                 )
+            owner_shop = int(g.get("shop_id") or 0)
+            purchase_counts[owner_shop] = purchase_counts.get(owner_shop, 0) + buy_num
 
         # 6. 广播 Events.SHOP_BUY
         try:
-            total_count = sum(int(x.get("buy_num") or 1) for x in buy_goods_list)
-            bus.emit(Events.SHOP_BUY, ctx, uid, count=total_count, shop_id=sid)
+            # Use the purchased goods' configured owner, not a client-supplied
+            # shop id. Mixed batches contribute once to each actual shop.
+            for owner_shop, count in purchase_counts.items():
+                bus.emit(Events.SHOP_BUY, ctx, uid, count=count, shop_id=owner_shop)
         except Exception as e:
             logger.error(f"[ShopService] 广播 Events.SHOP_BUY 异常: {e}")
 
@@ -920,9 +964,35 @@ class ShopService:
             "result": 0,
             "give_items": give_items,
             "cost_items": cost_items
-        }) or b"\x08\x00"
+        })
+        if not p20013:
+            raise ValueError("必要商店购买回执 sc_20013 为空")
 
-        frames = [DownFrame(20013, p20013)]
+        # New equip instances must reach client memory before the purchase
+        # callback reads its inventory. The returned summary is only a record
+        # of the instances created above; do not grant them a second time.
+        equip_list = []
+        seen_equip_ids = set()
+        for equip in granted_equips:
+            equip_id = int(equip.get("id") or equip.get("equip_id") or 0)
+            if equip_id <= 0 or equip_id in seen_equip_ids:
+                continue
+            seen_equip_ids.add(equip_id)
+            equip_list.append({
+                "equip_id": equip_id,
+                "prefab_id": int(equip.get("prefab_id") or 0),
+                "num": 1,
+                "enchant_slot_list": normalize_enchant_slots(equip.get("enchant_slot_list")),
+                "race": int(equip.get("race") or 0),
+            })
+
+        frames = []
+        if equip_list:
+            equip_payload = encode("sc_17023", {"equip_list": equip_list})
+            if not equip_payload:
+                raise RuntimeError("商店刻印发放后无法编码 sc_17023 差量帧")
+            frames.append(DownFrame(17023, equip_payload))
+        frames.append(DownFrame(20013, p20013))
 
         # 追加 sc_20005 商店变动帧（仅常规代币货架商店需下发；充值礼包/补给商店严禁下发，以防客户端 SingleShopUpdate 遍历非 ShopCfg 道具崩溃）
         if sid in NORMAL_SHOP_IDS and sid != 3:
@@ -964,8 +1034,15 @@ class ShopService:
 
         try:
             from operations import _refresh_frames
-            frames.extend(_refresh_frames(ctx, uid))
+            refresh = _refresh_frames(ctx, uid, strict=has_ticket_purchase)
+            if has_ticket_purchase:
+                # The purchase callback may immediately start the draw.
+                frames[:0] = refresh
+            else:
+                frames.extend(refresh)
         except Exception:
+            if has_ticket_purchase:
+                raise
             pass
 
         if hasattr(ctx, "log"):
@@ -980,6 +1057,9 @@ class ShopService:
         rows = self.db.query("SELECT buy_times, next_refresh_timestamp FROM store_purchase WHERE uid=? AND goods_id=?", (uid, goods_id))
         if not rows:
             return 0
+        from skin_draw_service import metadata
+        if str(int(goods_id)) in metadata()['ticket_goods']:
+            return int(rows[0]['buy_times'] or 0)
         nr = int(rows[0].get("next_refresh_timestamp") or 0)
         if nr > 0 and nr <= now_ts:
             try:
@@ -992,6 +1072,16 @@ class ShopService:
     def _find_goods_cfg(self, goods_id, shop_id):
         """寻找商品元数据（优先 shop_goods，其次 daily_shop_pool）"""
         gid = int(goods_id)
+        from skin_draw_service import metadata, ticket_goods
+        if str(gid) in metadata()['ticket_goods']:
+            cfg = ticket_goods().get(gid)
+            if not cfg or int(cfg['shop_id']) != int(shop_id):
+                raise OperationError(2, '票券商品与商店或当前版本不匹配')
+            return dict(cfg, _skin_draw_ticket=True)
+        from activity_content_service import catalog
+        native = catalog()['goods'].get(str(gid))
+        if native:
+            return dict(native, item_id=native['give_id'], detail_json=json.dumps(native))
         if self.db:
             r = self.db.query("SELECT * FROM shop_goods WHERE goods_id=?", (gid,))
             if r:
@@ -1001,7 +1091,8 @@ class ShopService:
         for pos, cands in pool.items():
             for c in cands:
                 if c.get("goods_id") == gid:
-                    return c
+                    # This fallback catalog is exclusively the daily shop.
+                    return dict(c, shop_id=2)
         return None
 
     # ==================== 5. 主动刷新（cs_20014）与全同步（cs_20016） ====================
@@ -1107,6 +1198,17 @@ class ShopService:
         if now_ts is None:
             now_ts = int(time.time())
 
+        from account_db import savepoint_transaction
+        checkpoint = checkpoint_notifications(ctx)
+        try:
+            with savepoint_transaction(self.db):
+                self._reset_daily_shop(ctx, uid, now_ts)
+        except BaseException:
+            restore_notifications(ctx, checkpoint)
+            raise
+
+    def _reset_daily_shop(self, ctx, uid, now_ts):
+        """货架、收据和必要在线通知作为一次日切提交。"""
         # 1. 每日采购（Shop 2）全量货架重抽并清空
         self.roll_daily_shop_goods(uid, force_new=True)
         self.db.execute("UPDATE user_daily_shop SET refresh_times=0, last_refresh_ts=?, update_ts=? WHERE uid=?",
@@ -1115,60 +1217,65 @@ class ShopService:
 
         # 2. 仅精确定向删除 refresh_cycle == 4 的日限购商品（如日常补给 Shop 4 中的每日应急冷却包 4034501）
         # 严禁误伤同商店内的永久限购 (refresh_cycle=1) 或月限购 (refresh_cycle=2) 礼包！
-        try:
-            self.db.execute("""
-                DELETE FROM store_purchase
-                WHERE uid=? AND goods_id IN (
-                    SELECT goods_id FROM shop_goods WHERE refresh_cycle = 4 AND shop_id != 2
-                )
-            """, (uid,))
-        except Exception:
-            pass
+        self.db.execute("""
+            DELETE FROM store_purchase
+            WHERE uid=? AND goods_id IN (
+                SELECT goods_id FROM shop_goods WHERE refresh_cycle = 4 AND shop_id != 2
+            )
+        """, (uid,))
 
         # 3. 在线即时推送更新帧
         if hasattr(ctx, "append_frame") or hasattr(ctx, "pending_frames"):
-            # (1) 推送每日采购（Shop 2）全新货架
-            try:
-                shop2_data = self.get_single_shop_payload(uid, 2)
-                p20005_2 = encode("sc_20005", shop2_data)
-                if p20005_2:
-                    df2 = DownFrame(20005, p20005_2)
-                    if hasattr(ctx, "append_frame"):
-                        ctx.append_frame(df2)
-                    else:
-                        ctx.pending_frames.append(df2)
-            except Exception:
-                pass
-
-            # (2) 推送日常补给（Shop 4）单品重置：仅 4034501 变回 0/1 可购买，其余商品状态丝毫不动
-            try:
-                shop4_data = self.get_single_shop_payload(uid, 4)
-                p20005_4 = encode("sc_20005", shop4_data)
-                if p20005_4:
-                    df4 = DownFrame(20005, p20005_4)
-                    if hasattr(ctx, "append_frame"):
-                        ctx.append_frame(df4)
-                    else:
-                        ctx.pending_frames.append(df4)
-            except Exception:
-                pass
+            for sid in (2, 4):
+                payload = encode('sc_20005', self.get_single_shop_payload(uid, sid))
+                if not isinstance(payload, (bytes, bytearray, memoryview)) or not payload:
+                    raise ValueError(f'日切商店{sid}必要通知生成失败')
+                frame = DownFrame(20005, bytes(payload))
+                if hasattr(ctx, 'append_frame'):
+                    ctx.append_frame(frame)
+                else:
+                    ctx.pending_frames.append(frame)
 
         if hasattr(ctx, "log"):
             ctx.log(f"[ShopService] 用户 {uid} 触发每日 05:00 商城重置（每日采购货架/次数已重置，日常补给每日应急冷却包已重置）")
+
+    def _reset_purchase_cycle(self, ctx, uid, refresh_cycle):
+        """清理本周期收据，原子生成已存在常规货架的当前状态通知。"""
+        from account_db import savepoint_transaction
+        checkpoint = checkpoint_notifications(ctx)
+        try:
+            with savepoint_transaction(self.db):
+                affected = self.db.query(
+                    'SELECT DISTINCT g.shop_id FROM store_purchase p '
+                    'JOIN shop_goods g ON g.goods_id=p.goods_id '
+                    'WHERE p.uid=? AND g.refresh_cycle=?', (uid, refresh_cycle))
+                self.db.execute(
+                    'DELETE FROM store_purchase WHERE uid=? AND goods_id IN '
+                    '(SELECT goods_id FROM shop_goods WHERE refresh_cycle=?)',
+                    (uid, refresh_cycle))
+                if not (hasattr(ctx, 'append_frame') or hasattr(ctx, 'pending_frames')):
+                    return
+                visible = {int(s['shop_id']) for s in self._get_shop_base_template()}
+                frames = []
+                for sid in sorted({int(r['shop_id']) for r in affected} & visible & NORMAL_SHOP_IDS):
+                    payload = encode('sc_20005', self.get_single_shop_payload(uid, sid))
+                    if not payload:
+                        raise ValueError(f'周期商店{sid}刷新通知为空')
+                    frames.append(DownFrame(20005, payload))
+                for frame in frames:
+                    if hasattr(ctx, 'append_frame'):
+                        ctx.append_frame(frame)
+                    else:
+                        ctx.pending_frames.append(frame)
+        except BaseException:
+            restore_notifications(ctx, checkpoint)
+            raise
 
     def on_weekly_reset_mon_5am(self, ctx, uid, cycle_start_ts=0, now_ts=None, **kwargs):
         """每周一 05:00 跨周周期重置：清理 refresh_cycle == 3 (每周限购) 的已购记录"""
         if not uid or not self.db:
             return
-        try:
-            self.db.execute("""
-                DELETE FROM store_purchase
-                WHERE uid=? AND goods_id IN (
-                    SELECT goods_id FROM shop_goods WHERE refresh_cycle = 3
-                )
-            """, (uid,))
-        except Exception:
-            pass
+        self._reset_purchase_cycle(ctx, uid, 3)
         if hasattr(ctx, "log"):
             ctx.log(f"[ShopService] 用户 {uid} 触发每周一 05:00 商城重置（周限购已清空）")
 
@@ -1176,15 +1283,7 @@ class ShopService:
         """每月 1 日 05:00 跨月周期重置：清理 refresh_cycle == 2 (每月限购) 的已购记录"""
         if not uid or not self.db:
             return
-        try:
-            self.db.execute("""
-                DELETE FROM store_purchase
-                WHERE uid=? AND goods_id IN (
-                    SELECT goods_id FROM shop_goods WHERE refresh_cycle = 2
-                )
-            """, (uid,))
-        except Exception:
-            pass
+        self._reset_purchase_cycle(ctx, uid, 2)
         if hasattr(ctx, "log"):
             ctx.log(f"[ShopService] 用户 {uid} 触发每月 1 日 05:00 商城重置（月限购已清空）")
 

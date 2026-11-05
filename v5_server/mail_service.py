@@ -21,9 +21,9 @@ import json
 import time
 import logging
 import threading
-from inventory_service import InventoryService, CLIENT_FATAL_ITEM_IDS
-import client_itemcfg
+from inventory_service import InventoryService
 from event_bus import bus, Events
+from operation_notifications import checkpoint_notifications, restore_notifications
 
 logger = logging.getLogger("mail_service")
 _send_mail_lock = threading.Lock()
@@ -46,6 +46,7 @@ class MailService:
     _LETTERS_BY_HERO = None
     _TEMPLATES_CACHE = None
     _TEMPLATES_WITH_PARAM_SET = None
+    _TEMPLATES_WARNING_EMITTED = False
 
     def __init__(self, db=None):
         self.db = db
@@ -97,7 +98,12 @@ class MailService:
                         if "%s" in t_title or "%d" in t_title:
                             param_set.add(int(t["id"]))
                 except Exception as e:
-                    logger.error(f"加载 mail_templates.json 失败: {e}")
+                    if not cls._TEMPLATES_WARNING_EMITTED:
+                        logger.warning(f"加载 mail_templates.json 失败，邮件列表继续使用字面标题: {e}")
+                        cls._TEMPLATES_WARNING_EMITTED = True
+            elif not cls._TEMPLATES_WARNING_EMITTED:
+                logger.warning("mail_templates.json 不存在，邮件列表继续使用字面标题")
+                cls._TEMPLATES_WARNING_EMITTED = True
             cls._TEMPLATES_CACHE = templates
             cls._TEMPLATES_WITH_PARAM_SET = param_set
 
@@ -147,11 +153,6 @@ class MailService:
                         else:
                             continue
                         if aid > 0 and anum > 0:
-                            if not client_itemcfg.is_client_known_item(aid):
-                                # 客户端 ItemCfg 无此 id：列表侧也不下发（旧版会把
-                                # 20/21 等发给 RewardView/CommonItemView 渲染，崩溃
-                                # 路径与领取侧同源），该附件不可领也不可见
-                                continue
                             attachment_list.append({"id": aid, "number": anum})
                 except Exception:
                     pass
@@ -164,14 +165,6 @@ class MailService:
             if not attachment_list:
                 attach_flag = 2
 
-            tpl_id = int(r.get("template_id") or 0)
-            # 模板占位符安全规约：若模板标题含有 %s/%d 占位符且无 title_format 实参（如 1001-1044 充值周期包等），
-            # 必须置 mail_template_id=0 直出完整 title，防止客户端 MailData.GetMailTitle unpack({}) 触发 string.format 缺少参数崩溃
-            if (self._TEMPLATES_WITH_PARAM_SET and tpl_id in self._TEMPLATES_WITH_PARAM_SET) or not tpl_id:
-                mail_tpl_id = 0
-            else:
-                mail_tpl_id = tpl_id
-
             lst.append({
                 "id": int(r["mail_id"]),
                 "date": int(r.get("send_time") or 0),
@@ -181,7 +174,9 @@ class MailService:
                 "attachment_list": attachment_list,
                 "timeout_timestamp": exp,
                 "star_state": int(r.get("star_state") or 0),
-                "mail_template_id": mail_tpl_id,
+                # `title` is already rendered and title_format is empty; always bypass
+                # client template formatting to prevent string.format on missing args.
+                "mail_template_id": 0,
                 "title_format": [],
                 "i18n_info": []
             })
@@ -198,17 +193,11 @@ class MailService:
         )
         lst = []
         for r in rows:
-            tpl_id = int(r.get("template_id") or 0)
-            if (self._TEMPLATES_WITH_PARAM_SET and tpl_id in self._TEMPLATES_WITH_PARAM_SET) or not tpl_id:
-                mail_tpl_id = 0
-            else:
-                mail_tpl_id = tpl_id
-
             lst.append({
                 "id": int(r["mail_id"]),
                 "collect_date": int(r.get("update_ts") or r.get("send_time") or 0),
                 "title": str(r.get("title") or ""),
-                "mail_template_id": mail_tpl_id,
+                "mail_template_id": 0,
                 "title_format": [],
                 "i18n_info": [],
                 "mail_timestamp": int(r.get("send_time") or 0)
@@ -269,8 +258,6 @@ class MailService:
                     else:
                         continue
                     if aid > 0 and num > 0:
-                        if not client_itemcfg.is_client_known_item(aid):
-                            continue  # 列表/详情侧同源过滤（见 get_inbox_list 注释）
                         attachments.append({"id": aid, "number": num})
             except Exception:
                 pass
@@ -305,37 +292,40 @@ class MailService:
         全量接入统一资产中心 InventoryService：
         - 无论是货币、材料、刻印、钥从、换装（含重复自动分解 1680 移转之辉）、场景、气泡、头像框等，全部规范持久化并派发事件；
         - 更新对应邮件 attach_flag=2, read_flag=2。
-        返回：{"attachment_list": [...], "success_mail_ids": [...], "touched_heroes": [...], "touched_scene": bool}"""
+        返回附件、成功邮件ID及需要刷新的英雄/换装/场景。
+        独立调用自带事务；Core内嵌套时异常必须继续传播到外层，不能吞错后提交。"""
         _db = (ctx.db if ctx and hasattr(ctx, "db") and ctx.db else None) or self._get_db(db)
         if not _db:
-            return {"attachment_list": [], "success_mail_ids": [], "touched_heroes": [], "touched_scene": False}
+            raise ValueError("领取邮件附件缺少数据库")
+        checkpoint = checkpoint_notifications(ctx) if ctx is not None else None
+        try:
+            with _db.transaction():
+                return self._claim_mail_attachments(uid, mail_id, ctx, _db)
+        except BaseException:
+            if checkpoint is not None:
+                restore_notifications(ctx, checkpoint)
+            raise
 
+    def _claim_mail_attachments(self, uid, mail_id, ctx, _db):
+        """调用方持有事务：只选待领邮件，完整发奖后才确认领取事实。"""
         mid = int(mail_id or 0)
         if mid > 0:
-            rows = _db.query("SELECT * FROM mail WHERE uid=? AND mail_id=?", (uid, mid))
+            rows = _db.query("SELECT * FROM mail WHERE uid=? AND mail_id=? AND attach_flag=1", (uid, mid))
         else:
             rows = _db.query("SELECT * FROM mail WHERE uid=? AND attach_flag=1", (uid,))
 
         all_items_to_add = []
         claimed_attachments = []
         success_mail_ids = []
-        failed_mail_ids = []
         now_ts = int(time.time())
 
         for m in rows:
             m_id = int(m["mail_id"])
             attach_list = []
-            try:
-                attach_list = json.loads(m.get("attachment_json") or "[]")
-            except Exception:
-                attach_list = []
+            attach_list = json.loads(m.get("attachment_json") or "[]")
+            if not isinstance(attach_list, list):
+                raise ValueError(f"邮件 {m_id} 附件必须是列表")
 
-            # 【2026-09-29 整改 P1-2】按封校验：任一附件 id 不在客户端 ItemCfg 白名单
-            # 则整封拒领（不落 attach_flag、不进 success 列表）。
-            # 旧版仅跳过黑名单 id 后照旧标记"已领取"——玩家被告知成功、附件凭空消失
-            # 且邮件不可再领（静默数据丢失，DB 实证 M1-repro-A/B 附件 21/20 从未入库）。
-            parsed = []
-            bad_ids = []
             for it in attach_list:
                 if isinstance(it, dict):
                     iid = int(it.get("item_id") or it.get("id") or 0)
@@ -343,49 +333,44 @@ class MailService:
                 elif isinstance(it, (list, tuple)) and len(it) >= 2:
                     iid, num = int(it[0]), int(it[1])
                 else:
-                    continue
+                    raise ValueError(f"邮件 {m_id} 含无效附件")
                 if iid <= 0 or num <= 0:
-                    continue
-                if not client_itemcfg.is_client_known_item(iid):
-                    bad_ids.append(iid)
-                    continue
-                parsed.append((iid, num))
+                    raise ValueError(f"邮件 {m_id} 附件ID与数量必须为正数")
 
-            if bad_ids:
-                logger.warning(
-                    f"[M-1防护] 邮件 {m_id} 附件含客户端不存在 id={bad_ids}，整封拒领"
-                    f"（保持可领取状态，请用 GM 重发合规附件）")
-                failed_mail_ids.append(m_id)
-                continue
+                all_items_to_add.append((iid, num))
+                claimed_attachments.append({"id": iid, "number": num})
 
-            all_items_to_add.extend(parsed)
-            claimed_attachments.extend({"id": iid, "number": num} for iid, num in parsed)
-
-            # 标记该邮件已读且附件已领
-            _db.execute(
-                "UPDATE mail SET attach_flag=2, read_flag=2, update_ts=? WHERE uid=? AND mail_id=?",
-                (now_ts, uid, m_id)
-            )
             success_mail_ids.append(m_id)
 
         # 统一转交 InventoryService 进行批量发奖与事件广播
         summary = {}
         if all_items_to_add:
-            try:
-                summary = InventoryService.grant_items(ctx or _db, uid, all_items_to_add, source="mail")
-            except Exception as e:
-                logger.error(f"邮件附件发放异常: {e}")
+            summary = InventoryService.grant_items(ctx or _db, uid, all_items_to_add, source="mail")
+            claimed_attachments = [{'id': iid, 'number': count} for iid, count in
+                                   InventoryService.rewards_after_overflow(all_items_to_add, summary)]
 
-        touched_heroes = list(set((summary.get("hero_unlocked") or []) + (summary.get("skins") or [])))
+        for m_id in success_mail_ids:
+            changed = _db.execute(
+                "UPDATE mail SET attach_flag=2, read_flag=2, update_ts=? WHERE uid=? AND mail_id=? AND attach_flag=1",
+                (now_ts, uid, m_id)
+            )
+            if changed.rowcount != 1:
+                raise ValueError(f"邮件 {m_id} 领取状态发生变化")
+
+        if success_mail_ids:
+            from birthday_service import on_official_mail_claim
+            from types import SimpleNamespace
+            on_official_mail_claim(ctx if ctx is not None else SimpleNamespace(db=_db),uid,success_mail_ids)
+
+        touched_heroes = list(set(summary.get("hero_unlocked") or []))
         touched_scene = bool(summary.get("scenes"))
 
-        logger.info(f"uid={uid} 领取邮件附件: 成功 {len(success_mail_ids)} 封 / 拒领 {len(failed_mail_ids)} 封 "
-                    f"(含客户端不存在附件id)，道具数={len(claimed_attachments)}")
+        logger.info(f"uid={uid} 成功领取邮件附件: 邮件数={len(success_mail_ids)} 道具数={len(claimed_attachments)}")
         return {
             "attachment_list": claimed_attachments,
             "success_mail_ids": success_mail_ids,
-            "failed_mail_ids": failed_mail_ids,
             "touched_heroes": touched_heroes,
+            "touched_skins": list(set(summary.get("skins") or [])),
             "touched_scene": touched_scene
         }
 

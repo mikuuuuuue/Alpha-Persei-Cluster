@@ -64,29 +64,21 @@ Thumbs.db
 .vscode/
 .idea/
 
-.superpowers/
+# Local work records and partial downloads are not release sources.
+/AGENT_BOARD.md
+/.agent-memory.md
+/agent-memory.md
+/archive/
+*.before*
+*.part
 
-# 接手期资产保护：官方衍生数据与便携包不入公开仓库（NCR-1.0 / README §十）
-AetherGazer_Server_v5.0_Portable/
-AetherGazer_Server_v5.0_Portable.zip
-captures/
-selftest_tmp/
-*.pcap
-*.pcapng
+# Per-host runtime state
+/v5_server/data/slot_registry.json
+/v5_server/.save-generation.lock
+linux_config.json
+linux_generated/
 
-# M1 运行时数据产物（官方衍生，NCR-1.0 / README §十，只提交提取工具不提交产物）
-v5_server/lua_proto_messages.json
-v5_server/角色挖掘/
-v5_server/account.db
-
-# 官方美术资产防护（NCR-1.0 / README §十.2：源码不包含、不分发官方客户端专有资源）
-v5_server/static_web/extracted_assets/
-
-
-# Task 6 诊断产物防护（官方衍生：CDN 缓存/转储等）
-v5_server/cdn_cache/
-*.dmp
-
-# 抓包数据与安装包（NCR-1.0 / README §十：不入 git；2026-09-29 从桌面迁入仓库目录）
-/Alpha-Persei-Captures/
-/Alpha-Persei-Assets/
+# Host download state
+/v5_server/runtime/
+/v5_server/cdn_cache/
+*.json.lock

@@ -17,6 +17,7 @@ main.py — V5 服务器入口（模块装配）
   python main.py --self-check       # 自检退出
 """
 import argparse
+from ipaddress import IPv4Address
 import os
 import struct
 import sys
@@ -26,12 +27,12 @@ import time
 # 强制 UTF-8 编码支持（标准输入输出与 Windows 控制台代码页 65001）
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
 if sys.platform == "win32":
     try:
         import ctypes
@@ -82,15 +83,27 @@ def build_core(db=None, generator=None, codec_encode=None, codec_decode=None, lo
     return core
 
 
+def _check_protocol_assets(encoder):
+    """在打开数据库或监听端口前校验网关所需的协议定义。"""
+    for message in ("sc_10039", "sc_10043"):
+        if encoder(message, {"result": 1}) != b"\x08\x01":
+            raise RuntimeError(f"协议数据缺失或不可用: {message}，请检查 lua_proto_messages.json")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="V5 模块化服务器（MAIN 装配）")
-    ap.add_argument("--host-ip", default="", help="宿主机局域网 IP（默认自动检测真实 LAN IPv4）")
+    ap.add_argument("--host-ip", default="", help="对外发布 IP（公网或局域网 IPv4，默认自动检测 LAN 地址）")
     ap.add_argument("--https-port", type=int, default=443, help="HTTPS SDK/区服端口（443 需管理员）")
+    ap.add_argument("--http-port", type=int, default=80, help="HTTP 辅助端口（0=关闭，反代部署可禁用）")
+    ap.add_argument("--web-bind", type=IPv4Address, default=IPv4Address("0.0.0.0"),
+                    help="HTTP/HTTPS 本机监听地址（反代可使用 127.0.0.1）")
     ap.add_argument("--gw-port", type=int, default=8102, help="gateway TCP 端口")
     ap.add_argument("--game-port", type=int, default=8105, help="game TCP 端口")
     ap.add_argument("--capture-cdn", action="store_true", default=True, help="开启官方 CDN 资源智能穿透与抓包（默认开启）")
     ap.add_argument("--no-capture-cdn", action="store_true", help="强制禁用官方 CDN 抓包（纯离线模式）")
-    ap.add_argument("--dns", action="store_true", help="启动内置轻量 UDP:53 DNS 服务器（需管理员权限）")
+    ap.add_argument("--dns", action="store_true", help="启动内置轻量 UDP/TCP:53 DNS 服务器（需管理员权限）")
+    ap.add_argument("--dns-upstream", action="append", type=IPv4Address, metavar="IPv4",
+                    help="DNS 转发上游，可重复指定；本机代理改写公共 DNS 时可指定局域网路由器")
     ap.add_argument("--replay", default="", metavar="素材目录",
                     help="激活重放模块并指定素材目录（如 archive/20260805_全流程_服务器2_蒂卡拉/complete_replay）")
     ap.add_argument("--frame-delay", type=float, default=0.001, help="重放帧间延迟")
@@ -99,8 +112,14 @@ def main(argv=None):
                     help="UDP 动态战斗服端口（0=禁用；sc_54007 下发给客户端）")
     ap.add_argument("--db", default=os.environ.get("ACCOUNT_DB_PATH", "account.db"),
                     help="指定挂载的数据库文件路径或名称 (默认: account.db)")
-    ap.add_argument("--res-version", choices=["auto", "229", "311", "321"], default="auto",
-                    help="指定客户端分发资源版本 (默认: auto 优先自动对齐客户端目录版本, 可选: 229, 311, 321)")
+    ap.add_argument("--res-version", default="auto",
+                    help="资源选择预设：auto=各渠道默认（Windows可读本机PC清单），或原生构建号；精确方案用--resource-profile")
+    ap.add_argument('--game-version', default='', help='缺少渠道信息时的业务默认版本；游戏连接按渠道及原生BASE独立判定')
+    ap.add_argument('--resource-profile', action='append', default=[], metavar='渠道=方案',
+                    help='可重复指定 pc/ios/android=方案名称或短ID（支持中文）')
+    ap.add_argument('--list-resource-profiles', action='store_true', help='列出原生/派生清单名称与短ID并退出')
+    ap.add_argument("--check-update", action="store_true", help="主动检查官方服务器最新版本及差异文件并退出")
+    ap.add_argument("--sync-update", action="store_true", help="主动检查并下载官方最新版本资源与清单并退出")
     ap.add_argument("--client-assets-dir", default="",
                     help="指定客户端 StreamingAssets 资源目录（用于自动版本探测，留空使用默认官方路径）")
     ap.add_argument("--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"],
@@ -109,10 +128,47 @@ def main(argv=None):
     ap.add_argument("--self-check", action="store_true", help="自检并退出")
     args = ap.parse_args(argv)
 
+    if args.list_resource_profiles:
+        import resource_distribution
+        for profile in resource_distribution.get_status()['profiles']:
+            if not profile.get('removed'):
+                print(f"{profile['platform']}={profile['id']}  {profile['label']}  {'可用' if profile['ready'] else '未就绪'}")
+        return 0
+
+    if args.check_update:
+        import res_version_manager
+        res_version_manager.check_and_print_update(sync=False)
+        sys.exit(0)
+
+    if args.sync_update:
+        import res_version_manager
+        result = res_version_manager.check_and_print_update(sync=True)
+        sys.exit(result or 0)
+
+    for name in ("https_port", "http_port", "gw_port", "game_port", "battle_port"):
+        minimum = 0 if name in ("http_port", "battle_port") else 1
+        if not minimum <= getattr(args, name) <= 65535:
+            ap.error(f"{name} 端口范围错误")
+    if "AG_ADMIN_AUTH_FILE" in os.environ:
+        from admin_access import load_credentials
+        load_credentials(os.environ["AG_ADMIN_AUTH_FILE"])
+    if sys.platform != "win32" and not args.self_check:
+        from linux_manager import check_ports
+        try:
+            check_ports(args.https_port, args.http_port, args.gw_port, args.game_port,
+                        args.battle_port, str(args.web_bind), args.dns)
+        except OSError as exc:
+            ap.error(str(exc))
+
     import logger as _logger
     _logger.set_level(args.log_level)
 
     v5_dir = os.path.dirname(os.path.abspath(__file__))
+
+    try:
+        _check_protocol_assets(_enc)
+    except Exception as exc:
+        ap.error(f"协议资源校验失败，未打开数据库或监听端口: {exc}")
 
     # 确定权威数据库挂载路径（默认使用 account.db 生产库）
     target_db = args.db
@@ -127,19 +183,27 @@ def main(argv=None):
     import gm_reader
     gm_reader.DEFAULT_DB = target_db
 
-    # 装配客户端资源分发版本状态（默认 auto 优先与客户端自动对齐，支持 CLI 显式覆盖与 GM 面板动态切换）
-    import res_version_manager
-    target_res_ver = str(args.res_version).strip().lower()
-    client_dir = args.client_assets_dir.strip() if args.client_assets_dir else None
+    # 同步初始化多存档管理器活跃库
+    try:
+        from save_slot_manager import get_slot_manager
+        slot_mgr = get_slot_manager(v5_dir, base_port=args.gw_port, game_port=args.game_port)
+        slot_mgr.set_active_db(target_db)
+    except Exception as _e:
+        log(f"多存档管理器初始化异常: {_e}", "WARN", module="SAVE")
 
-    if target_res_ver == "auto":
-        res_version_manager.apply_auto_client_version(
-            custom_dir=client_dir,
-            fallback_version=res_version_manager.DEFAULT_VERSION
-        )
-    else:
-        res_version_manager.set_current_version(target_res_ver)
-        res_version_manager.detect_client_resource_version(client_dir)
+    # Resource channel selections and global gameplay are independent.
+    import res_version_manager
+    import resource_distribution
+    target_res_ver = str(args.res_version).strip()
+    client_dir = args.client_assets_dir.strip() if args.client_assets_dir else None
+    game_version = args.game_version.strip()
+    if not game_version and target_res_ver.isdigit():
+        game_version = target_res_ver  # compatibility with existing numeric CMD commands
+    if game_version:
+        changed, reason = res_version_manager.set_current_version(game_version)
+        if not changed:
+            raise ValueError(reason)
+    resource_distribution.configure_startup(target_res_ver, client_dir, args.resource_profile)
 
     # 记录服务启动时间戳
     server_start_ts = int(time.time())
@@ -205,23 +269,16 @@ def main(argv=None):
     # 统一挂接服务端日志器
     log = _logger.log
 
-    # 打印客户端资源版本自适应探测日志
     curr_ver = res_version_manager.get_current_version()
-    curr_cfg = res_version_manager.get_version_config(curr_ver)
+    log(f'业务版本 Build {curr_ver}；资源按各渠道清单选择独立分发', module='VERSION')
     client_info = res_version_manager.get_detected_client_info()
-    if target_res_ver == "auto":
-        if client_info.get("detected"):
-            log(f"客户端版本自动探测成功: 已自适应对齐至 Build {curr_ver} ({client_info.get('matched_file')})", module="VERSION")
-        else:
-            log(f"客户端版本自动探测未命中 ({client_info.get('detail')})，平滑降级至安全默认版本: Build {curr_ver}", module="VERSION")
-    else:
-        if client_info.get("detected") and client_info.get("version") != curr_ver:
-            log(f"CLI 手动指定版本 ({curr_ver}) 与客户端探测版本 ({client_info.get('version')}) 不一致！将遵从 CLI 指定。", "WARN", module="VERSION")
-        else:
-            log(f"启动版本由 CLI 手动指定为: Build {curr_ver}", module="VERSION")
+    if client_info.get('detected'):
+        log(f'PC本机资源提示: {client_info.get("matched_file")}（仅PC渠道）', module='VERSION')
 
     # ---------------- 端口自检与冲突进程自动守护 (PortGuard) ----------------
     def _ensure_ports_clean(target_ports):
+        if sys.platform != "win32":
+            return  # Linux 只检测冲突，不终止占用端口的其他服务。
         curr_pid = os.getpid()
         target_ports = set(int(p) for p in target_ports if p and int(p) > 0)
         killed_pids = set()
@@ -296,13 +353,18 @@ def main(argv=None):
 
         log(f"端口自检与进程守护就绪，当前服务单例 PID: {curr_pid}", module="PORT")
 
-    # 执行端口预检与守护
-    _ensure_ports_clean([args.game_port, args.gw_port, args.https_port, args.battle_port, 80])
+    # 执行端口预检与守护（包含 Gateway 32 槽位端口池，自动避开 game_port）
+    from save_slot_manager import TOTAL_SLOTS, slot_id_to_port
+    all_gw_ports = [slot_id_to_port(i, args.gw_port, args.game_port) for i in range(1, TOTAL_SLOTS + 1)]
+    _ensure_ports_clean([args.game_port, *all_gw_ports, args.https_port, args.battle_port, args.http_port])
 
     import gen_cert
     import cdn_proxy
     host_ip = args.host_ip.strip() if args.host_ip else gen_cert.get_default_lan_ip()
     server_net.set_host_ip(host_ip)
+    outbound_ip = cdn_proxy.select_source_ip(host_ip)
+    cdn_proxy.set_source_ip(outbound_ip)
+    log(f"对外发布 IP: {host_ip}，CDN 本机出站 IP: {outbound_ip}", module="NET")
 
     if args.no_capture_cdn:
         cdn_proxy.set_capture_enabled(False)
@@ -335,17 +397,22 @@ def main(argv=None):
 
     # 自动校验与生成 ATS 合规双层证书与 iPhone 描述文件（若已有对应证书则不主动生成）
     v5_dir = os.path.dirname(os.path.abspath(__file__))
-    gen_cert.generate_dual_layer_certs(output_dir=v5_dir, extra_ips=[host_ip], log=log, force=False)
+    if not gen_cert.generate_dual_layer_certs(output_dir=v5_dir, extra_ips=[host_ip], log=log, force=False):
+        log("证书准备失败，请在启动壳重新部署证书后再启动。", module="CERT")
+        return 1
 
     # 启动可选内置 DNS 服务
     if args.dns:
         import dns_server
-        dns_server.start_dns_service(host_ip=host_ip, log=log)
+        upstreams = [(str(ip), 53) for ip in args.dns_upstream] if args.dns_upstream else None
+        dns_server.start_dns_service(host_ip=host_ip, log=log, upstreams=upstreams)
 
     # 装配数据库 + CORE
     db = get_db(target_db)
+    owner_uid = _gen.bind_save_owner(db)
     core = build_core(db=db, generator=_gen, codec_encode=_enc, codec_decode=_dec, log=log)
     log(f"权威数据库挂载: {os.path.basename(target_db)} ({target_db})", module="MAIN")
+    log(f"默认登录账号 UID={owner_uid}", module="MAIN")
     log(f"CORE 装配完成，操作注册 {len(core_mod.OPERATIONS)} 个", module="MAIN")
 
     # 挂载版本守卫：若当前客户端资源分发版本为 229，执行幂等清洗下架 311 专属卡池
@@ -428,7 +495,7 @@ def main(argv=None):
         battle_srv = _bs.BattleServer(
             args.battle_port,
             log=lambda *a, **k: log(*a, module="BATTLE"),
-            server_ts=lambda: int(time.time()),
+            server_ts=time.time,
             bind_host="0.0.0.0")
         # 132 结果由战斗服内部登记（get_result/pop_battle_result 取用），
         # 客户端战毕必然回发 cs_54032 → h_54032 结算引擎被动应答，无需 UDP 线程推 TCP
@@ -442,20 +509,24 @@ def main(argv=None):
         replay=replay_mod, material=material, frame_delay=args.frame_delay)
     log(f"game TCP 监听 {args.game_port}", module="NET")
 
-    # 启动 gateway TCP 服务器（登录握手）
+    # 启动 gateway TCP 服务器池（登录握手与多存档槽位管理）
     gws = server_net.start_gateway_server(
-        args.gw_port, core, db, _gen, _enc, _dec, material=material, host_ip=host_ip)
+        args.gw_port, core, db, _gen, _enc, _dec,
+        material=material, host_ip=host_ip, game_port=args.game_port, game_server=srv
+    )
     gws.game_port = args.game_port
+    gws.game_server = srv
     gw_thread = threading.Thread(target=gws.serve_forever, daemon=True)
     gw_thread.start()
-    log(f"gateway TCP 监听 {args.gw_port} (下发目标 IP: {host_ip})", module="NET")
+    log(f"gateway TCP 服务器池监听 {args.gw_port}..{slot_id_to_port(TOTAL_SLOTS, args.gw_port, args.game_port)} (跳过 {args.game_port}) (下发目标 IP: {host_ip})", module="NET")
 
     # 启动 HTTPS（SDK 层 + HTTP:80 辅助 + 官方 CDN 抓包拦截）
     app = server_net.build_https_app(core, material, args.game_port, args.gw_port, host_ip=host_ip)
     https_thread = threading.Thread(
-        target=server_net.start_https, args=(app, args.https_port), daemon=True)
+        target=server_net.start_https, args=(app, args.https_port),
+        kwargs={"http_port": args.http_port, "bind_ip": str(args.web_bind)}, daemon=True)
     https_thread.start()
-    log(f"HTTPS(SDK) 监听 {args.https_port} (HTTP:80 直传已挂载)", module="NET")
+    log(f"HTTPS(SDK) 监听 {args.web_bind}:{args.https_port}，HTTP 辅助端口 {args.http_port or '关闭'}", module="NET")
 
     curr_ver = res_version_manager.get_current_version()
     curr_cfg = res_version_manager.get_version_config(curr_ver)
@@ -469,23 +540,40 @@ def main(argv=None):
         print(f"  - 客户端资源对齐   : [已对齐] 命中客户端 Build {client_info['version']} ({client_info['matched_file']})", flush=True)
     else:
         print(f"  - 客户端资源对齐   : [未对齐/兜底] {client_info.get('detail')}", flush=True)
-    print(f"  - 根证书安装地址   : http://{host_ip}/cert", flush=True)
-    print(f"  - PC 端资源落盘目录 : {cdn_proxy.get_data_dir('pc')}", flush=True)
-    print(f"  - iOS 端资源落盘目录: {cdn_proxy.get_data_dir('ios')}", flush=True)
+    web_base = (f"http://{host_ip}" + (f":{args.http_port}" if args.http_port != 80 else "")) if args.http_port else f"https://{host_ip}:{args.https_port}"
+    console_base = f"https://{host_ip}:{args.https_port}"
+    if args.web_bind.is_loopback:
+        web_base = console_base = "反代对外 HTTPS 地址"
+    print(f"  - 根证书安装地址   : {web_base}/cert", flush=True)
+    print(f"  - PC 端资源落盘目录 : {cdn_proxy.PLATFORM_DIRS.get('pc') or '未选择，请在Web面板配置'}", flush=True)
+    print(f"  - iOS 端资源落盘目录: {cdn_proxy.PLATFORM_DIRS.get('ios') or '未选择，请在Web面板配置'}", flush=True)
     print(f"  - 官方资源智能抓包 : {'[已开启] (双向流式转发 + 物理分盘落库)' if cdn_proxy.is_capture_enabled() else '[已关闭] (纯本地缓存)'}", flush=True)
-    print(f"  - GM 运维控制台    : http://{host_ip}/web/gm_console.html", flush=True)
-    print(f"  - 客户端关于与排障 : http://{host_ip}/web/agreement.html", flush=True)
+    print(f"  - GM 运维控制台    : {console_base}/web/gm_console.html", flush=True)
+    print(f"  - 客户端关于与排障 : {web_base}/web/agreement.html", flush=True)
     print("=" * 64, flush=True)
 
-    while True:
-        try:
-            srv.serve_forever()
-        except KeyboardInterrupt:
-            log("正常退出 (KeyboardInterrupt)", module="MAIN")
-            break
-        except BaseException as e:
-            log(f"game TCP 捕获异常: {e}，保持持续运行...", "WARN", module="MAIN")
-            time.sleep(1)
+    try:
+        retries = 0
+        while True:
+            try:
+                srv.serve_forever()
+                break
+            except KeyboardInterrupt:
+                log("正常退出 (KeyboardInterrupt)", module="MAIN")
+                break
+            except Exception as e:
+                retries += 1
+                if retries >= 3:
+                    log(f"game TCP 连续异常达到 3 次，停止服务: {e}", "ERROR", module="MAIN")
+                    raise
+                log(f"game TCP 捕获异常: {e}，重试 {retries}/2...", "WARN", module="MAIN")
+                time.sleep(1)
+    finally:
+        gws.shutdown()
+        gws.server_close()
+        srv.server_close()
+        if battle_srv is not None:
+            battle_srv.stop()
     return 0
 
 

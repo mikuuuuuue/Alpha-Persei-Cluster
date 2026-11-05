@@ -11,6 +11,8 @@ reserve_codec.py — 预备编队与出战队伍持久化编解码器（sc_63005
 import json
 import time
 
+from formation_codec import build_formation_fields
+
 
 def _varint(v):
     v = int(v)
@@ -168,7 +170,11 @@ def build_sc_63005(db, uid):
     if not body:
         # 最小合法帧：team_type=0 空 cont_teams（官方新号语义，无幻影编队）
         body = bytearray()
-        body += _pb_varint(1, 0)
+        # sc_63005.f1 is a message field; wrap the team_type in that message.
+        body += _pb_msg(1, _pb_varint(1, 0))
+
+    # Saved formations use sc_63005.f4 and are independent of stage_team.
+    body.extend(build_formation_fields(db, uid))
 
     return bytes(body)
 
@@ -290,10 +296,6 @@ def save_team_from_cs_63000(db, uid, req_data):
         t_idx = _to_int(t.get("team_index"))
         coop_skill = _to_int(t.get("cooperate_unique_skill_id"))
         mimir = t.get("mimir_info")
-        # 【2026-09-29 整改 P2】与 middleware._parse_battle_common 的 M-4 归一化同规则：
-        # schema 标 repeated 时解码为 [{...}]，取首元素而非清零
-        if isinstance(mimir, list):
-            mimir = mimir[0] if mimir else {}
         mimir = mimir if isinstance(mimir, dict) else {}
         mimir_id = _to_int(mimir.get("mimir_id"))
         chip_list = mimir.get("chip_list") or []

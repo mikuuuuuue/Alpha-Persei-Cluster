@@ -1,5 +1,9 @@
 # Alpha Persei Cluster
 
+> This project is maintained by one person. Recent commitments may slow down bug investigation and fixes; thank you for your patience and understanding.
+
+> **Troubleshooting**: Start with the [issue index and scan reports](https://github.com/Mint-ARK/Alpha-Persei-Cluster/blob/codex/diagnostic-reports-20261020/reports/README.md). Find the relevant feature and symptom, then use the report's initial diagnosis, files, and protocol entry points to investigate, or share it with an agent for help. When opening an Issue, include your client platform, version, reproduction steps, relevant logs, and the matching A-number if available.
+
 <div align="center">
 
 [简体中文](./README.md) | **English**
@@ -20,6 +24,32 @@
 > 📖 **Developer's Note / Behind the Scenes**:  
 > Curious about the story, motivations, and journey behind this project? Check out the author's blog post: [About LocalServer - MoriaRuRuka (Chinese)](https://moriaruruka.com/2026/09/24/411/).
 
+## Current release: v5.0.1 (2026-10-19)
+
+This maintenance release updates runtime flows and packaging integrity. Download the validated portable, installer, or backend package from [v5.0.1](https://github.com/Mint-ARK/Alpha-Persei-Cluster/releases/tag/v5.0.1). See the [changelog](CHANGELOG.md) and verify downloads with [SHA256SUMS.txt](SHA256SUMS.txt).
+
+**We recommend the portable ZIP (`AetherGazer_Server_v5.0_Portable.zip`), which requires no installation.** After extracting it, choose either CMD by running `启动离线单机服务(控制台).bat`, or the desktop launcher by running `LocalServer.exe` / `启动离线单机服务(GUI界面).bat`. The installer remains optional.
+
+Back up your database, extract to a separate directory, and stop the previous server before starting the update. Distribution certificates are separate from the development environment; mobile devices must install and trust the certificate/profile provided by their current host. Full game resources and external CDN caches are not included.
+
+**Platform and resource support:**
+
+| Platform | Supported builds | Notes |
+| --- | --- | --- |
+| **PC** | **All three: 229 / 311 / 321** | Resource manifests are configured for all three builds. |
+| **iOS** | **229 / 321; 311 is invalid** | **Build 229 supports the in-app purchase experience**. The maintainer missed capturing the iOS311 resource package, so its corresponding manifests are unavailable. |
+| **Android and other unlisted platforms** | **Manual configuration required** | Due to limited access to devices and testing environments, the corresponding internal asset manifests have not been configured. Users must configure and import them themselves. |
+
+
+## v5.0.2 source and local build update: 2026-10-26
+
+This branch integrates save generation and in-game save selection, UTF-8 launch arguments, activity tasks and shops, first-clear and battle-time fixes, birthday mail, daily AI greetings, and chat-history restoration. Portable archives let Windows users choose the console or desktop launcher; Linux uses the core package. See the [save and AI guide](docs/save_and_ai_guide.md). This update adds per-save API profiles, the Web save manager, paid-entitlement controls and corrected leaderboard sources. Windows and Linux packages are built locally; the Issue #8 patch is not merged.
+
+
+## v5.0.2 update: 2026-10-28
+
+Adds per-platform manifest management, an active download queue and shared cache storage. Fixes Build 229 login loading and preserves battlepass progress across resource versions. Packages include account.db and three preset saves with API credentials removed. See the [resource and download guide](docs/resource_download_guide.md).
+
 ---
 
 ## Table of Contents
@@ -31,7 +61,6 @@
   - [3.2 Mode A: Desktop Launcher (Recommended)](#32-mode-a-desktop-launcher-recommended)
   - [3.3 Mode B: Command-Line Interface (CLI)](#33-mode-b-command-line-interface-cli)
   - [3.4 Client Traffic Redirection](#34-client-traffic-redirection)
-  - [3.5 Runtime Data Preparation (Self-Extracted)](#35-runtime-data-preparation-self-extracted)
 - [4. CLI Arguments Reference](#4-cli-arguments-reference)
 - [5. Core Server Architecture: Breakdown of all 70 Modules](#5-core-server-architecture-breakdown-of-all-70-modules)
   - [5.1 Main Assembly & Lifecycle Entrypoints (4 modules)](#51-main-assembly--lifecycle-entrypoints-4-modules)
@@ -170,28 +199,6 @@ Add static resolution entries to `C:\Windows\System32\drivers\etc\hosts` pointin
 4. Open Safari on iOS, navigate to `http://192.168.1.100/sdk_ca.mobileconfig`, then install and trust the profile;
 5. **Note**: Due to limited testing hardware, only iOS has undergone preliminary verification. Android and HarmonyOS have not yet been systematically tested, though the underlying networking principles remain comparable.
 
-### 3.5 Runtime Data Preparation (Self-Extracted)
-
-In compliance with [§10 Disclaimer](#10-disclaimer--compliance), proprietary assets are not distributed. After cloning the repository, extract the necessary runtime artifacts locally (template coverage depends on characters unlocked in the captured account):
-
-1. **Prerequisites**: Unpack the client to obtain `protocol/*_pb.lua` (91 files) and an official login packet capture containing the `sc_14009` frame;
-2. **Extract Protocol Schema** (~3,040 messages):
-   ```powershell
-   python tools/extract_proto_schema.py <protocol_dir> -o v5_server/lua_proto_messages.json
-   ```
-3. **Extract Hero Templates** (77 templates, byte-exact assertion):
-   ```powershell
-   python tools/extract_hero_templates.py <login_capture_dir> -o v5_server/角色挖掘
-   ```
-4. **Copy Base Database** (from the portable package):
-   ```powershell
-   cp AetherGazer_Server_v5.0_Portable/v5_server/account.db v5_server/
-   ```
-5. **Verify Installation**:
-   ```powershell
-   cd v5_server && python ../tests/m1_dispatch_check.py
-   ```
-
 ---
 
 ## 4. CLI Arguments Reference
@@ -210,7 +217,7 @@ Run `python main.py --help` in the `v5_server` directory to inspect available op
 | `--client-assets-dir` | `string` | Empty | Path to the client's `StreamingAssets` directory for version detection |
 | `--capture-cdn` | `flag` | `True` | Forward CDN requests to official mirrors and cache downloaded assets locally |
 | `--no-capture-cdn` | `flag` | - | Disable external CDN probing; operate strictly offline |
-| `--dns` | `flag` | `False` | Run a lightweight UDP:53 DNS redirection server (requires Administrator) |
+| `--dns` | `flag` | `False` | Run a lightweight UDP/TCP:53 DNS redirection server (requires Administrator) |
 | `--log-level` | `enum` | `INFO` | Console output verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `--self-check` | `flag` | - | Validate component initialization and operation registrations, then exit |
 
@@ -231,7 +238,7 @@ The 70 Python modules in `v5_server` are systematically divided into 9 functiona
 
 * **`server_net.py`**: Multi-protocol network gateway. Listens on TCP 8102 (Gateway) and 8105 (Game), provides HTTPS (443) and HTTP (80) routing, and serves static files and WebP assets;
 * **`transport.py`**: Binary TCP transport framer. Handles streaming packet boundaries, magic bytes, payload length calculations, and sequence numbers;
-* **`dns_server.py`**: Lightweight UDP:53 DNS server for redirecting target domains to the server machine's local IP;
+* **`dns_server.py`**: Lightweight UDP/TCP:53 DNS server that redirects target domains to the host's LAN IP and forwards other queries upstream;
 * **`cdn_proxy.py`**: Transparent CDN proxy and caching module. Retrieves remote asset patches requested by clients and writes them to local storage;
 * **`fetch_manifests.py`**: Remote asset manifest fetcher and parser for indexing version hashes;
 * **`gen_cert.py`**: Self-signed Certificate Authority (CA) and SSL certificate generator, with support for exporting `.mobileconfig` profiles for iOS.
@@ -399,7 +406,7 @@ The management console is built with **React 19 + TypeScript + Tailwind CSS** an
   - Tower Climb has no protocol implementation; AutoChess and Verthandi events lack rigorous testing;
 - [ ] **Automated Account Migration**: Packet analysis and database conversion tools have not yet been automated;
 - [ ] **Costume Gacha Banner**: Exclusive costume banner mechanics have not yet been implemented.
-- [ ] **DNS Issue**: There is a distribution problem with the current DNS component when connecting the iPhone, causing the device to go offline when using this DNS address.
+- [x] **DNS issue (initially resolved)**: Forwarding for non-target domains has been fixed, with UDP/TCP queries and failure responses supported. Further observation across iPhones and other devices on different networks is still needed.
 - [ ] **Potential Program Issues**: In addition to the known issues mentioned above, you may still encounter other problems while using this program—such as the loading overlay freezing or "Network Connection Failed" pop-ups. These issues typically stem from Lua crashes caused by anomalous server protocol frame fields, or a failure to receive responses (or receiving responses with incorrect frame numbers) due to missing fallback mappings for skeleton files.
 - [ ] **Gameplay/Experience Issues**: These are issues affecting your actual in-game experience, such as items not being granted correctly, items being deducted multiple times or at incorrect rates, incorrect return rates for items, anomalies in item or numerical value updates, and toast notifications indicating errors like "Remote Call Error." These problems generally arise from anomalies in the program's internal execution logic; minor numerical display issues can often be resolved by exiting to the login screen and re-entering the game. If the issue involves database errors, you may—if you have the technical capability—compile the source code yourself to update the core, or submit an issue to provide feedback. I am deeply grateful to everyone willing to try this project and submit reports; your contributions significantly improve the project's usability.
 

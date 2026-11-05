@@ -82,6 +82,7 @@ export interface OverviewStatusData {
   gw_port?: number
   host_ip?: string
   default_uid?: number
+  save_owner_uid?: number | null
   online_users?: number
   total_users?: number
   capture_enabled?: boolean
@@ -143,6 +144,8 @@ export interface StickerWall {
   page_desc?: string
   foreground?: number
   is_active?: boolean
+  is_saved?: boolean
+  is_owned?: boolean
   total_stickers: number
   stickers: StickerItem[]
 }
@@ -157,6 +160,8 @@ export interface AccountProfileData {
   max_fatigue?: number
   fatigue_max?: number
   sign: string
+  birthday?: { month: number; day: number }
+  birthday_invalid?: boolean
   avatar_id?: number
   portrait?: number
   icon_frame_id?: number
@@ -398,6 +403,7 @@ export function getStoredApiBase(): string {
 export function setStoredApiBase(url: string): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(STORAGE_KEY_API_BASE, url.trim().replace(/\/+$/, ''))
+  window.dispatchEvent(new Event('gm-api-base-changed'))
 }
 
 export const DEFAULT_ACCOUNT_UID = 2174928301
@@ -416,6 +422,53 @@ export function setActiveUid(uid: number): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(STORAGE_KEY_ACTIVE_UID, String(uid))
 }
+
+export function getSelectedSave(): string {
+  return localStorage.getItem(`gm_save:${getStoredApiBase()}`) || ''
+}
+
+export function setSelectedSave(filename: string): void {
+  localStorage.setItem(`gm_save:${getStoredApiBase()}`, filename)
+}
+
+export interface SaveEntry {
+  filename: string; name: string; uid: number; nick: string; level: number
+  slot_id: number | null; port: number | null; mounted: boolean
+}
+export interface SaveOptions {
+  uid?: string | null; nick?: string | null; level: number; skip_intro: boolean
+  skip_feature_guides: boolean; clear_through: number | null
+  noob_tasks_ready: boolean; support_mail: boolean
+}
+export interface SaveCatalog {
+  saves: SaveEntry[]
+  presets: { key: string; title: string; options: SaveOptions }[]
+}
+export async function fetchSaveCatalog(): Promise<ApiResponse<SaveCatalog>> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 10000)
+  try {
+    const res = await apiRequest<SaveCatalog>('/api/gm/saves', { signal: controller.signal })
+    if (!res.data || !Array.isArray(res.data.saves) || !Array.isArray(res.data.presets)) {
+      throw new Error('服务端未返回有效的存档列表，请重启服务端加载更新后重试')
+    }
+    return res
+  } catch (e: any) {
+    if (controller.signal.aborted) throw new Error('读取存档列表超时，请检查服务地址后重试')
+    if (e.status === 404) throw new Error('当前服务端尚未加载存档管理接口，请重启服务端后重试')
+    throw e
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+export const createSave = (payload: { name: string; options: SaveOptions; preview?: boolean }) =>
+  apiRequest<any>('/api/gm/saves/create', { method: 'POST', body: JSON.stringify(payload) })
+
+export interface ApiProfile extends AIChatConfigData { id: string; name: string; type: string }
+export interface ApiProfiles { storage: string; active_id: string; profiles: ApiProfile[]; routes: Record<string, string> }
+export const fetchApiProfiles = () => apiRequest<ApiProfiles>('/api/gm/aichat/apis')
+export const updateApiProfiles = (payload: Record<string, unknown>) =>
+  apiRequest<ApiProfiles>('/api/gm/aichat/apis', { method: 'POST', body: JSON.stringify(payload) })
 
 /**
  * 转换前端静态提取资源（头像、物品等）路径：
@@ -461,6 +514,8 @@ export async function apiRequest<T = any>(
     'Content-Type': 'application/json',
     Accept: 'application/json',
   }
+  const save = getSelectedSave()
+  if (save && !path.startsWith('/api/gm/saves')) defaultHeaders['X-Save-Name'] = encodeURIComponent(save)
 
   try {
     const res = await fetch(url, {
@@ -472,7 +527,9 @@ export async function apiRequest<T = any>(
     })
 
     if (!res.ok) {
-      throw new Error(`HTTP Error ${res.status}: ${res.statusText}`)
+      const error = new Error(`HTTP Error ${res.status}: ${res.statusText}`) as Error & { status: number }
+      error.status = res.status
+      throw error
     }
 
     const data = await res.json()
@@ -568,6 +625,17 @@ export async function modifyAccountPeripheral(payload: {
   icon_frame_id?: number
 }): Promise<ApiResponse<any>> {
   return apiRequest('/api/gm/account/modify_peripheral', {
+    method: 'POST',
+    body: JSON.stringify({ uid: getActiveUid(), ...payload }),
+  })
+}
+
+export async function modifyAccountBirthday(payload: {
+  uid?: number
+  month: number
+  day: number
+}): Promise<ApiResponse<{ uid: number; birthday: { month: number; day: number } }>> {
+  return apiRequest('/api/gm/account/modify_birthday', {
     method: 'POST',
     body: JSON.stringify({ uid: getActiveUid(), ...payload }),
   })
@@ -947,10 +1015,10 @@ export async function saveAIChatConfig(payload: Partial<AIChatConfigData> & { ap
   })
 }
 
-export async function testAIChatConnection(provider?: string): Promise<ApiResponse<any>> {
+export async function testAIChatConnection(provider?: string, profileId?: string): Promise<ApiResponse<any>> {
   return apiRequest('/api/gm/aichat/test_connection', {
     method: 'POST',
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({ provider, profile_id: profileId }),
   })
 }
 
@@ -1039,6 +1107,22 @@ export interface RechargeStatusData {
     pay_level: number
     exp_14: number
     bp_reward_status: number
+    cycle_start: number
+    cycle_end: number
+    premium_gift_issued: boolean
+  }
+  small_month_card: {
+    long_term: boolean
+    active: boolean
+    paid_until: number
+    signed_today: boolean
+  }
+  big_month_card: {
+    auto_renew: boolean
+    active: boolean
+    cycle_end: number
+    sign_days: number
+    signed_today: boolean
   }
   noob_welfare: {
     fr_first_gear: number
@@ -1075,6 +1159,18 @@ export async function resetRechargeScope(
   return apiRequest('/api/gm/recharge/reset', {
     method: 'POST',
     body: JSON.stringify({ uid, scope }),
+  })
+}
+
+export type PaidRightsPatch = {
+  pay_level?: 0 | 201 | 202
+  small_long_term?: boolean
+  big_auto_renew?: boolean
+}
+
+export async function updatePaidRights(changes: PaidRightsPatch, uid: number = getActiveUid()) {
+  return apiRequest('/api/gm/recharge/rights', {
+    method: 'POST', body: JSON.stringify({ uid, ...changes }),
   })
 }
 
@@ -1342,7 +1438,7 @@ export interface LeaderboardItem {
   rank: number
   model: string
   provider: string
-  score: number
+  score: number | null
   sub_score: string
   metric_val: string
   details?: Record<string, any>
@@ -1358,6 +1454,9 @@ export interface LeaderboardSource {
   description: string
   columns: string[]
   items: LeaderboardItem[]
+  updated_at?: string
+  status?: string
+  error?: string
 }
 
 export interface LeaderboardsData {
@@ -1408,6 +1507,197 @@ export async function switchResVersion(version: string): Promise<ApiResponse<Res
     body: JSON.stringify({ version }),
   })
 }
+
+export type ResourcePlatform = 'pc' | 'android' | 'ios'
+export interface ManifestProfile {
+  id: string; platform: ResourcePlatform; channel_id: string; origin: 'native' | 'derived'
+  label: string; app_version: string; resource_version: string; version_name: string
+  assethash: string; md5: string; base_id: string | null; base_label: string
+  base_assethash: string; base_sha256: string; base_resource_version?: string; ready: boolean; error: string
+  removed: boolean; created_at: number; registered_at?: number; voice_source: string
+}
+export interface ChannelManifestSelection { selected_id: string; fallback_id: string }
+export interface ResourceDistributionData {
+  gameplay_version: string; scope: 'server'; native_only_base: boolean
+  operation_notice?: string
+  profiles: ManifestProfile[]
+  platforms: Record<ResourcePlatform, ChannelManifestSelection & {
+    channel_id: string; effective_id: string; effective: ManifestProfile; latest_native_id: string
+    fallback_active: boolean; notice: string
+  }>
+}
+export interface ManifestGenerateInput {
+  platform: ResourcePlatform; channel_id: string; base_id: string
+  target_app_version: string; target_resource_version: string; label: string
+}
+export interface ManifestPreview {
+  platform: ResourcePlatform; channel_id: string; base_id: string; base_label: string
+  base_assethash: string; base_sha256: string; app_version: string; resource_version: string
+  version_name: string; label: string; assethash: string; md5: string; size: number
+  preview_token: string; voice_files: string[]; voice_source: string
+}
+export async function fetchResourceDistribution(): Promise<ApiResponse<ResourceDistributionData>> {
+  return apiRequest('/api/gm/system/resource_distribution')
+}
+export async function saveResourceDistribution(selections: Record<ResourcePlatform, ChannelManifestSelection>): Promise<ApiResponse<ResourceDistributionData>> {
+  return apiRequest('/api/gm/system/resource_distribution', {
+    method: 'POST', body: JSON.stringify({ selections }),
+  })
+}
+export const previewManifest = (input: ManifestGenerateInput): Promise<ApiResponse<ManifestPreview>> =>
+  apiRequest('/api/gm/system/resource_manifests/preview', { method: 'POST', body: JSON.stringify(input) })
+export const generateManifest = (input: ManifestGenerateInput & { preview_token: string }): Promise<ApiResponse<{
+  profile: ManifestProfile; catalogue: ResourceDistributionData; existed: boolean
+}>> => apiRequest('/api/gm/system/resource_manifests/generate', { method: 'POST', body: JSON.stringify(input) })
+export const removeManifest = (id: string): Promise<ApiResponse<ResourceDistributionData>> =>
+  apiRequest('/api/gm/system/resource_manifests/remove', { method: 'POST', body: JSON.stringify({ id }) })
+export const restoreManifest = (id: string): Promise<ApiResponse<ResourceDistributionData>> =>
+  apiRequest('/api/gm/system/resource_manifests/restore', { method: 'POST', body: JSON.stringify({ id }) })
+
+// ==========================================
+// 12.1 官方上游更新检测与下载同步 (/api/gm/system/check_update)
+// ==========================================
+
+export interface ManifestDiffFile {
+  path: string
+  old_hash?: string
+  old_size?: number
+  new_hash?: string
+  new_size?: number
+  size_diff?: number
+}
+
+export interface DiffSummaryData {
+  added_count: number
+  added_total_bytes: number
+  removed_count: number
+  modified_count: number
+  modified_total_bytes: number
+  total_download_bytes: number
+  total_download_mb: number
+  modified_files: ManifestDiffFile[]
+  added_files: ManifestDiffFile[]
+  removed_files: ManifestDiffFile[]
+}
+
+export interface CheckUpdateData {
+  success: boolean
+  diff_ready?: boolean
+  diff_error?: string
+  has_update: boolean
+  platform: string
+  channel_id: string
+  local_version: string
+  local_version_name: string
+  local_app_version: string
+  local_assethash: string
+  remote_version: string
+  remote_version_name: string
+  remote_app_version: string
+  remote_assethash: string
+  remote_manifest_present?: boolean
+  remote_manifest_valid?: boolean
+  remote_install_version: string
+  remote_candidates: {
+    type: string; platform: string; channel_id: string; app_version: string
+    version: string; version_name: string; assethash: string; download_url: string
+  }[]
+  total_local_assets: number
+  total_remote_assets: number
+  diff_summary: DiffSummaryData
+}
+
+export interface UpdateProgressData {
+  status: 'idle' | 'checking' | 'downloading' | 'cancelling' | 'cancelled' | 'registering' | 'completed' | 'error'
+  progress_percent: number
+  current_file: string
+  downloaded_files: number
+  total_files: number
+  downloaded_bytes: number
+  total_bytes: number
+  speed_kbps: number
+  message: string
+  error: string | null
+  target_version: string
+  version_name: string
+  diff_summary: DiffSummaryData | null
+  active_downloads?: number
+  max_concurrency?: number
+}
+
+export interface ResourceDownloadSettings {
+  max_concurrency: number
+  default_concurrency: number
+  min_concurrency: number
+  max_allowed: number
+  warning: string
+}
+
+export async function fetchResourceDownloadSettings(): Promise<ApiResponse<ResourceDownloadSettings>> {
+  return apiRequest<ResourceDownloadSettings>('/api/gm/system/resource_download_settings')
+}
+
+export async function saveResourceDownloadSettings(max_concurrency: number): Promise<ApiResponse<ResourceDownloadSettings>> {
+  return apiRequest<ResourceDownloadSettings>('/api/gm/system/resource_download_settings', {
+    method: 'POST', body: JSON.stringify({ max_concurrency }),
+  })
+}
+
+export async function checkOfficialUpdate(platform = 'pc'): Promise<ApiResponse<CheckUpdateData>> {
+  return apiRequest<CheckUpdateData>(`/api/gm/system/check_update?platform=${platform}`)
+}
+
+export async function startSyncUpdate(params?: {
+  target_version?: string
+  download_diff_assets?: boolean
+  platforms?: string[]
+}): Promise<ApiResponse<{ started: boolean }>> {
+  return apiRequest<{ started: boolean }>('/api/gm/system/sync_update', {
+    method: 'POST',
+    body: JSON.stringify(params || {}),
+  })
+}
+
+export async function fetchUpdateProgress(): Promise<ApiResponse<UpdateProgressData>> {
+  return apiRequest<UpdateProgressData>('/api/gm/system/update_progress')
+}
+
+export async function cancelUpdateTask(): Promise<ApiResponse<{ cancelled: boolean }>> {
+  return apiRequest<{ cancelled: boolean }>('/api/gm/system/cancel_update', {
+    method: 'POST',
+  })
+}
+
+export type DownloadScope = 'required' | 'extended' | 'all'
+export interface DownloadTask {
+  id: string; platform: ResourcePlatform; kind: 'assets' | 'manifest'; scope: DownloadScope
+  label: string; approved: boolean; state: string; created_at: number; message: string
+  source: { filename: string; label: string; sha256?: string }
+  group_id: string; progress_percent: number; speed_bps: number; wire_bytes: number
+  stats: { total_files?: number; total_bytes?: number; cached_files?: number; cached_bytes?: number
+    needed_files?: number; needed_bytes?: number; done_files?: number; done_bytes?: number
+    failed_files?: number; unresolved_count?: number; free_bytes?: number; output_dir?: string
+    failures?: { filename: string; error: string }[]; unresolved_paths?: string[] }
+}
+export interface DownloadQueueData {
+  tasks: DownloadTask[]; parallel_tasks: number; max_parallel_tasks: number; paused: boolean
+  total_speed_bps: number; active_group_id: string; active_task_ids: string[]
+  active_files: number
+  group_stats: { total_files?: number; total_bytes?: number; cached_bytes?: number; done_bytes?: number; failed_files?: number }
+  gate: { passive_requests: number; passive_pending: boolean; active_group: boolean }
+  file_concurrency: number; warning: string
+}
+export interface DownloadQueueInput {
+  platform: ResourcePlatform; kind: 'assets' | 'manifest'; scope: DownloadScope
+  profile_id?: string; filename?: string; download: boolean
+}
+export interface DownloadQueueHint { platform: ResourcePlatform; filename: string; kind: 'assets' | 'manifest' }
+export const fetchDownloadQueue = () => apiRequest<DownloadQueueData>('/api/gm/system/download_queue')
+export const fetchDownloadCatalogue = () => apiRequest<{ files: { platform: ResourcePlatform; filename: string }[] }>('/api/gm/system/download_queue/catalogue')
+export const enqueueDownload = (body: DownloadQueueInput) => apiRequest<{ task_id: string; queue: DownloadQueueData }>('/api/gm/system/download_queue', { method: 'POST', body: JSON.stringify(body) })
+export const operateDownload = (action: string, task_id?: string) => apiRequest<DownloadQueueData>('/api/gm/system/download_queue/action', { method: 'POST', body: JSON.stringify({ action, task_id }) })
+export const setDownloadQueueSettings = (parallel_tasks: number) => apiRequest<DownloadQueueData>('/api/gm/system/download_queue/settings', { method: 'POST', body: JSON.stringify({ parallel_tasks }) })
+export const fetchDownloadReport = (id: string) => apiRequest<Record<string, unknown>>(`/api/gm/system/download_queue/report/${encodeURIComponent(id)}`)
 
 // ==========================================
 // 13. iOS 229 开放 PAY 开关 (/api/gm/system/pay_switch)
@@ -1506,4 +1796,19 @@ export async function regenerateCert(): Promise<ApiResponse<{ status: string; ca
     method: 'POST',
   })
 }
+
+export interface ResourceStorageData {
+  root: string; root_selected: boolean; directories: Record<ResourcePlatform, string>; read_roots: string[]
+  config_path: string; recommended_root: string; free_bytes: number | null
+  server_os: string; overridden: boolean; warning: string
+}
+export interface ServerDirectoryData {
+  path: string; parent: string | null; directories: { name: string; path: string }[]
+  roots: string[]; truncated: boolean
+}
+export const fetchResourceStorage = () => apiRequest<ResourceStorageData>('/api/gm/system/resource_storage')
+export const saveResourceStorage = (root: string) => apiRequest<ResourceStorageData>('/api/gm/system/resource_storage', {
+  method: 'POST', body: JSON.stringify({ root }),
+})
+export const browseResourceStorage = (path = '') => apiRequest<ServerDirectoryData>(`/api/gm/system/resource_storage/browse?path=${encodeURIComponent(path)}`)
 

@@ -61,16 +61,55 @@ public sealed class ServerSupervisor : IDisposable
             }
         }
 
-        // 2. 查找环境变量中的 python
+        // 2. 检查本机标准用户及系统 Python 安装目录 (避免踩入 WindowsApps 0 字节别名陷阱)
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string[] standardCandidates = [
+            Path.Combine(localAppData, "Python", "bin", "python.exe"),
+            Path.Combine(localAppData, "Programs", "Python", "Python314", "python.exe"),
+            Path.Combine(localAppData, "Programs", "Python", "Python313", "python.exe"),
+            Path.Combine(localAppData, "Programs", "Python", "Python312", "python.exe"),
+            Path.Combine(localAppData, "Programs", "Python", "Python311", "python.exe"),
+            Path.Combine(localAppData, "Programs", "Python", "Python310", "python.exe"),
+            @"C:\Program Files\Python314\python.exe",
+            @"C:\Program Files\Python313\python.exe",
+            @"C:\Program Files\Python312\python.exe",
+            @"C:\Program Files\Python311\python.exe",
+            @"C:\Program Files\Python310\python.exe"
+        ];
+
+        foreach (var candidate in standardCandidates)
+        {
+            if (File.Exists(candidate))
+            {
+                try
+                {
+                    if (new FileInfo(candidate).Length > 0)
+                        return candidate;
+                }
+                catch { }
+            }
+        }
+
+        // 3. 查找环境变量中的 python (严格过滤 WindowsApps 假别名与空文件)
         string? envPath = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrEmpty(envPath))
         {
             foreach (string p in envPath.Split(Path.PathSeparator))
             {
-                string candidate = Path.Combine(p.Trim(), "python.exe");
+                string dirTrimmed = p.Trim();
+                if (dirTrimmed.Contains("WindowsApps", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                string candidate = Path.Combine(dirTrimmed, "python.exe");
                 if (File.Exists(candidate))
                 {
-                    return candidate;
+                    try
+                    {
+                        if (new FileInfo(candidate).Length > 0)
+                            return candidate;
+                    }
+                    catch { }
                 }
             }
         }
@@ -346,7 +385,7 @@ public sealed class ServerSupervisor : IDisposable
         return pids.ToList();
     }
 
-    public Task<bool> StartServerAsync(string? extraArgs = null)
+    public Task<bool> StartServerAsync(IEnumerable<string>? arguments = null)
     {
         lock (_lock)
         {
@@ -372,28 +411,7 @@ public sealed class ServerSupervisor : IDisposable
             }
 
             string mainPy = Path.Combine(srvDir, "main.py");
-            string arguments = $"\"{mainPy}\"";
-            if (!string.IsNullOrWhiteSpace(extraArgs))
-            {
-                arguments += $" {extraArgs}";
-            }
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = pythonExe,
-                Arguments = arguments,
-                WorkingDirectory = srvDir,
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-
-            // 注入通用 UTF-8 环境
-            startInfo.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-            startInfo.EnvironmentVariables["PYTHONUTF8"] = "1";
+            var startInfo = ServerProcessStartInfo.Create(pythonExe, mainPy, srvDir, arguments);
 
             try
             {

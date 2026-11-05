@@ -15,12 +15,10 @@ import time
 import json
 import shutil
 import re
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, g, has_request_context
 
 # 确保 v5_server 内部模块导入正常
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from inventory_service import CLIENT_FATAL_ITEM_IDS  # 退化兜底用
-import client_itemcfg
 
 try:
     import generator as _gen
@@ -41,8 +39,52 @@ except Exception:
 # 引入只读查询层 (Read Channel)
 from gm_reader import get_reader
 
+_global_get_db = get_db
+_global_get_reader = get_reader
+
+
+def get_db():
+    import gm_save_scope
+    return gm_save_scope.get_db(_global_get_db)
+
+
+def get_reader():
+    import gm_save_scope
+    return gm_save_scope.get_reader(_global_get_reader)
+
 # 创建 GM 统一蓝图
 gm_bp = Blueprint("gm_api", __name__)
+
+
+@gm_bp.before_request
+def _bind_save_request():
+    if request.method == 'OPTIONS':
+        return None
+    import gm_save_scope
+    try:
+        gm_save_scope.bind()
+        if not request.path.startswith(('/api/gm/system/', '/api/gm/saves')) and request.path != '/api/gm/res_version':
+            import account_db
+            import server_net
+            import res_version_manager as versions
+            path = getattr(g, 'gm_save_path', None) or getattr(account_db._db, 'path', None)
+            current = server_net.active_version_for_save(path)
+            if current:
+                g.gm_version_token = versions.enter_connection_version(current)
+    except (ValueError, OSError):
+        return err(GMErrorCode.PARAM_INVALID, '存档或账号选择无效，请刷新存档列表')
+
+
+@gm_bp.teardown_request
+def _close_save_request(exc):
+    import gm_save_scope
+    try:
+        gm_save_scope.close(exc)
+    finally:
+        token = g.pop('gm_version_token', None)
+        if token is not None:
+            import res_version_manager as versions
+            versions.leave_connection_version(token)
 
 # 全局上下文容器（由 server_net.build_https_app 注入）
 _context = {
@@ -56,7 +98,9 @@ _context = {
 
 def init_gm_api(core=None, game_port=8105, gw_port=8102, host_ip=None):
     """初始化 GM API 全局运行上下文。"""
-    global _context
+    global _context, DEFAULT_UID
+    import generator
+    DEFAULT_UID = generator.DEFAULT_UID
     if core is not None:
         _context["core"] = core
     if game_port:
@@ -101,8 +145,15 @@ def err(code=GMErrorCode.PARAM_INVALID, msg="error", data=None, status_code=200)
     }), status_code
 
 
-def _parse_uid(val, default=DEFAULT_UID):
+_DEFAULT_UID_UNSET = object()
+
+
+def _parse_uid(val, default=_DEFAULT_UID_UNSET):
     """解析并校验 UID。若有效则返回 (uid_int, None)，若非法返回 (None, err_msg)。"""
+    if default is _DEFAULT_UID_UNSET:
+        default = getattr(g, 'gm_save_uid', DEFAULT_UID) if has_request_context() else DEFAULT_UID
+    elif default is not None and has_request_context():
+        default = getattr(g, 'gm_save_uid', default)
     if val is None or val == "":
         if default is None:
             return None, "缺少参数 uid"
@@ -165,19 +216,7 @@ def _get_avatar_whitelist():
     global _AVATAR_WHITELIST
     if _AVATAR_WHITELIST is None:
         wl = set()
-        cat_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "..", "control_panel_v2", "public", "extracted_assets", "avatars", "avatars_catalog.json"
-        )
-        if os.path.isfile(cat_path):
-            try:
-                with open(cat_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    for item in data.get("portraits", []):
-                        if "id" in item:
-                            wl.add(int(item["id"]))
-            except Exception:
-                pass
+        # Image resource names (e.g. 1011) are not selectable portrait item IDs (2110111).
         dec_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "decorations_catalog.json")
         if os.path.isfile(dec_path):
             try:
@@ -233,7 +272,7 @@ def _cors_headers(resp):
     """全域放行 CORS 跨域通信。"""
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, X-Save-Name"
     return resp
 
 
@@ -243,13 +282,44 @@ def _options_preflight(_subpath):
     resp = Response("", status=200)
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, X-Save-Name"
     return resp
 
 
 # ===========================================================================
 # 1. 状态总览 (/overview)
 # ===========================================================================
+
+@gm_bp.route('/saves', methods=['GET'])
+def get_save_catalog():
+    import gm_save_scope
+    from dataclasses import asdict
+    from save_presets import PRESET_SLOTS
+    return ok(dict(saves=gm_save_scope.catalog(), presets=[dict(key=p.key, title=p.title, options=asdict(p.options))
+                   for p in PRESET_SLOTS.values()]))
+
+
+@gm_bp.route('/saves/create', methods=['POST'])
+def post_create_save():
+    import gm_save_scope
+    try:
+        return ok(gm_save_scope.create(request.get_json(silent=True)), msg='存档预览完成' if
+                  (request.get_json(silent=True) or {}).get('preview') else '新存档已生成并加入选区列表')
+    except (ValueError, TypeError, FileExistsError) as exc:
+        return err(GMErrorCode.PARAM_INVALID, str(exc))
+    except Exception:
+        return err(GMErrorCode.SERVICE_ERROR, '生成未完成，请检查服务端日志和存档列表')
+
+
+@gm_bp.route('/aichat/apis', methods=['GET', 'POST'])
+def manage_save_apis():
+    import ai_api_profiles
+    try:
+        if request.method == 'GET':
+            return ok(ai_api_profiles.view(get_reader()))
+        return ok(ai_api_profiles.update(get_db(), request.get_json(silent=True)), msg='当前存档API配置已更新')
+    except (ValueError, TypeError) as exc:
+        return err(GMErrorCode.PARAM_INVALID, str(exc))
 
 @gm_bp.route("/overview/status", methods=["GET"])
 @gm_bp.route("/status", methods=["GET"])  # 兼容旧路径
@@ -258,7 +328,7 @@ def get_overview_status():
     try:
         reader = get_reader()
         ctx = dict(_context)
-        ctx["default_uid"] = DEFAULT_UID
+        ctx["default_uid"] = getattr(g, 'gm_save_uid', DEFAULT_UID)
         ctx["capture_enabled"] = cdn_proxy.is_capture_enabled() if cdn_proxy else False
         try:
             import res_version_manager
@@ -270,6 +340,9 @@ def get_overview_status():
         if isinstance(data, dict):
             data["res_version"] = ctx.get("res_version", "229")
             data["res_version_config"] = ctx.get("res_version_config", {})
+            mounted_db = get_db()
+            owner = mounted_db.get_system_config('save.owner_uid') if mounted_db is not None else ''
+            data['save_owner_uid'] = int(owner) if owner else None
         return ok(data)
     except Exception as e:
         return err(GMErrorCode.SERVICE_ERROR, f"获取服务端运行状态失败: {e}")
@@ -545,10 +618,12 @@ def post_modify_account_peripheral():
             if avatar <= 0:
                 return err(GMErrorCode.PARAM_OUT_OF_RANGE, "头像 ID 必须为正整数")
             wl = _get_avatar_whitelist()
-            if wl and avatar not in wl:
+            if not wl:
+                return err(GMErrorCode.SERVICE_ERROR, '头像目录未能加载，请检查服务端资源')
+            if avatar not in wl:
                 return err(
                     GMErrorCode.PARAM_OUT_OF_RANGE,
-                    f"头像 ID [{avatar}] 不在客户端安全资源白名单中，已被阻断以防客户端 LUA 崩溃"
+                    f"头像 ID [{avatar}] 不在当前头像配置中"
                 )
         except (ValueError, TypeError):
             return err(GMErrorCode.PARAM_INVALID, "头像 ID 必须为整数")
@@ -587,6 +662,31 @@ def post_modify_account_peripheral():
         return err(GMErrorCode.DB_EXEC_FAILED, f"更新个性化外围失败: {e}")
 
     return ok({"uid": uid, "sign": sign, "avatar_id": avatar, "icon_frame_id": icon_frame}, msg="个性化外围设置成功")
+
+
+@gm_bp.route("/account/modify_birthday", methods=["POST"])
+def post_modify_account_birthday():
+    """GM birthday override, delegated to AccountDB with shared date rules."""
+    req = request.get_json(silent=True)
+    if not isinstance(req, dict):
+        return err(GMErrorCode.PARAM_INVALID, "请求体必须为有效JSON对象")
+    uid, message = _parse_uid(req.get("uid"), default=DEFAULT_UID)
+    if message:
+        return err(GMErrorCode.PARAM_INVALID, message)
+    month, day = req.get("month"), req.get("day")
+    from profile_rules import valid_birthday
+    if not (valid_birthday(month, day) or type(month) is int and type(day) is int and month == day == 0):
+        return err(GMErrorCode.PARAM_INVALID, "请填写有效月日；清除生日须同时为0")
+    db, error_response = _require_user(uid)
+    if error_response:
+        return error_response
+    try:
+        birthday = db.gm_override_birthday(uid, month, day)
+    except LookupError as exc:
+        return err(GMErrorCode.USER_NOT_FOUND, str(exc))
+    except Exception as exc:
+        return err(GMErrorCode.DB_EXEC_FAILED, f"生日保存失败: {exc}")
+    return ok({"uid": uid, "birthday": birthday}, msg="生日已清除" if month == 0 else "生日已更新")
 
 
 # ===========================================================================
@@ -933,10 +1033,6 @@ def post_send_mail():
             aid = int(it.get("id") or it.get("item_id") or 0)
             anum = int(it.get("number") or it.get("count") or it.get("num") or 0)
             if aid > 0 and anum > 0:
-                if not client_itemcfg.is_client_known_item(aid):
-                    return err(GMErrorCode.PARAM_INVALID,
-                               f"物品 ID {aid} 不在客户端 ItemCfg 白名单(7961)——"
-                               "下发会炸断客户端网络泵，禁止发送。探测凭证请用 5=修正者 / 38=精确")
                 if (200000 <= aid <= 600000) or (830000 <= aid <= 859999):
                     return err(GMErrorCode.PARAM_INVALID, f"物品 ID {aid} 属于刻印或刻印套装类物品，仅供图鉴展示，禁止通过邮件发送")
                 if aid == 30054 or (1000000000 <= aid <= 2000000000):
@@ -949,10 +1045,6 @@ def post_send_mail():
         elif isinstance(it, (list, tuple)) and len(it) >= 2:
             aid, anum = int(it[0]), int(it[1])
             if aid > 0 and anum > 0:
-                if not client_itemcfg.is_client_known_item(aid):
-                    return err(GMErrorCode.PARAM_INVALID,
-                               f"物品 ID {aid} 不在客户端 ItemCfg 白名单(7961)——"
-                               "下发会炸断客户端网络泵，禁止发送。探测凭证请用 5=修正者 / 38=精确")
                 if (200000 <= aid <= 600000) or (830000 <= aid <= 859999):
                     return err(GMErrorCode.PARAM_INVALID, f"物品 ID {aid} 属于刻印或刻印套装类物品，仅供图鉴展示，禁止通过邮件发送")
                 if aid == 30054 or (1000000000 <= aid <= 2000000000):
@@ -988,7 +1080,7 @@ def post_send_mail():
             pushed = False
             try:
                 import server_net
-                pushed = bool(server_net.push_mail_notice(uid))
+                pushed = bool(server_net.push_mail_notice(uid, expected_db=db))
             except Exception as _pe:
                 print(f"[GM] 推送邮件通知异常: {_pe}")
 
@@ -1227,11 +1319,17 @@ def post_unlock_stage_chapter():
     try:
         from stage_service import StageService
         svc = StageService.get_instance(db=db)
-        svc.apply_stage_preset(uid, mode="all_clear")
+        try:
+            chapter_id = svc.resolve_plot_chapter_id(chapter_id)
+        except ValueError as e:
+            return err(GMErrorCode.PARAM_INVALID, str(e))
+        success, message = svc.apply_stage_preset(uid, mode="all_clear", chapter_id=chapter_id)
+        if not success:
+            return err(GMErrorCode.SERVICE_ERROR, message)
     except Exception as e:
         return err(GMErrorCode.SERVICE_ERROR, f"解锁关卡失败: {e}")
 
-    return ok({"uid": uid, "chapter_id": chapter_id}, msg="主线剧情关卡已全部达成满星通关！")
+    return ok({"uid": uid, "chapter_id": chapter_id}, msg=message)
 
 
 @gm_bp.route("/stages/complete_achievements", methods=["POST"])
@@ -1364,41 +1462,54 @@ def get_aichat_stats():
 @gm_bp.route("/aichat/config", methods=["GET"])
 def get_aichat_config():
     """【只读通道·安全脱敏】获取当前大模型配置与脱敏后的 Provider 参数。"""
-    reader = get_reader()
-    data = reader.get_aichat_config_view()
+    import ai_api_profiles, ai_bot_config
+    cfg = ai_api_profiles.resolve(get_reader())
+    data = ai_bot_config.get_masked_config(cfg)
     return ok(data)
 
 
 @gm_bp.route("/aichat/config", methods=["POST"])
 def post_aichat_config():
-    """【写通道·安全解耦】更新大模型参数、Provider、Model 与 API 密钥（写入 .env 绝不污染公共代码）。"""
+    """Compatibility form: update the selected save's default API profile."""
     req = request.get_json(silent=True)
     if not isinstance(req, dict):
         return err(GMErrorCode.PARAM_INVALID, "请求体必须为有效 JSON 对象")
 
-    import ai_bot_config
+    import ai_api_profiles, ai_bot_config
     try:
-        success = ai_bot_config.save_bot_config(req)
-    except Exception:
-        success = False
-    if not success:
-        return err(GMErrorCode.PARAM_INVALID, "保存配置失败，请检查参数格式")
-
-    masked = ai_bot_config.get_masked_config()
-    return ok(masked, msg="大模型参数配置已安全保存")
+        db = get_db()
+        store = ai_api_profiles.load(db)
+        payload = dict(req)
+        if store and store['active_id']:
+            payload['id'] = store['active_id']
+        ai_api_profiles.update(db, payload)
+        return ok(ai_bot_config.get_masked_config(ai_api_profiles.resolve(db)), msg='API配置已保存到当前存档')
+    except ValueError as exc:
+        return err(GMErrorCode.PARAM_INVALID, str(exc))
 
 
 @gm_bp.route("/aichat/test_connection", methods=["POST"])
 def post_aichat_test_connection():
     """【诊断通道】探测指定大模型端点的网络连通性与往返延迟。"""
     req = request.get_json(silent=True) or {}
+    if not isinstance(req, dict):
+        return err(GMErrorCode.PARAM_INVALID, '请求体必须为JSON对象')
     provider = req.get("provider")
     if provider is not None and (not isinstance(provider, str) or not provider.strip()):
         return err(GMErrorCode.PARAM_INVALID, "provider 必须为非空文本")
     provider = provider.strip() if isinstance(provider, str) else None
 
     import ai_bot_service
-    res = ai_bot_service.test_llm_connection(provider)
+    import ai_api_profiles
+    try:
+        cfg = ai_api_profiles.resolve(get_reader(), profile_id=req.get('profile_id'))
+    except ValueError as exc:
+        return err(GMErrorCode.PARAM_INVALID, str(exc))
+    if not cfg.get('api_profile_id'):
+        return err(GMErrorCode.PARAM_INVALID, '当前存档尚未配置API，请先保存并选择一组配置')
+    if provider and provider != cfg['provider']:
+        return err(GMErrorCode.PARAM_INVALID, '测试厂商必须与所选API配置一致')
+    res = ai_bot_service.test_llm_connection(provider, cfg=cfg)
     if res.get("success"):
         return ok(res, msg=f"Provider [{res.get('provider')}] 连通性测试成功（耗时 {res.get('latency_ms')} ms）")
     else:
@@ -1418,7 +1529,8 @@ def post_aichat_leaderboards_refresh():
     """【评测榜单】实时触发后台抓取并更新大模型评测榜单缓存。"""
     import ai_bot_leaderboard
     res = ai_bot_leaderboard.refresh_leaderboard_data()
-    return ok(res, msg="评测榜单缓存已更新")
+    message = f"已更新{res['updated_sources']}个来源" if res["success"] else "本次未获取到新榜单数据"
+    return ok(res, msg=message)
 
 
 @gm_bp.route("/aichat/send", methods=["POST"])
@@ -1881,7 +1993,255 @@ def post_set_res_version():
         return err(GMErrorCode.SERVICE_ERROR, f"切换客户端资源版本异常: {e}")
 
 
+@gm_bp.route("/system/resource_distribution", methods=["GET", "POST"])
+def resource_distribution_config():
+    """Host-wide platform resource configuration; no save/database writes."""
+    try:
+        import resource_distribution
+        if request.method == "POST":
+            return ok(resource_distribution.save_platform(request.get_json(silent=True)),
+                      msg="资源分发已保存，下次客户端版本检查生效")
+        return ok(resource_distribution.get_status())
+    except (ValueError, KeyError, TypeError) as error:
+        return err(GMErrorCode.PARAM_INVALID, str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR, f"资源分发配置失败: {error}")
+
+
+@gm_bp.route('/system/resource_manifests/<action>', methods=['POST'])
+def resource_manifest_operation(action):
+    try:
+        import resource_distribution
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return err(GMErrorCode.PARAM_INVALID, '请求体必须为JSON对象')
+        if action == 'preview':
+            return ok(resource_distribution.preview_profile(body))
+        if action == 'generate':
+            return ok(resource_distribution.generate_profile(body), msg='副本已生成，尚未应用')
+        if action == 'remove':
+            return ok(resource_distribution.remove_profile(body.get('id')), msg='副本已从分发移除')
+        if action == 'restore':
+            return ok(resource_distribution.restore_profile(body.get('id')), msg='副本已恢复，尚未应用')
+        return err(GMErrorCode.PARAM_INVALID, '未知的清单管理操作')
+    except (ValueError, KeyError, TypeError) as error:
+        return err(GMErrorCode.PARAM_INVALID, str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR, f'清单操作失败: {error}')
+
+
+@gm_bp.route("/system/resource_download_settings", methods=["GET", "POST"])
+def resource_download_settings():
+    """Server-local active download window; independent of player databases."""
+    try:
+        import cdn_active_downloads
+        if request.method == 'POST':
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or 'max_concurrency' not in body:
+                return err(GMErrorCode.PARAM_INVALID, '请提供主动下载并发数')
+            return ok(cdn_active_downloads.settings.save(body['max_concurrency']),
+                      msg='下载并发已应用并保存')
+        return ok(cdn_active_downloads.settings.status())
+    except ValueError as error:
+        return err(GMErrorCode.PARAM_INVALID, str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR, f'下载设置保存失败: {error}')
+
+
+@gm_bp.route("/system/check_update", methods=["GET"])
+@gm_bp.route("/check_update", methods=["GET"])
+def get_check_update():
+    """【只读通道】主动穿透探测官方最新版本并计算增量差异。"""
+    try:
+        import res_version_manager
+        plat = request.args.get("platform", "pc")
+        import resource_distribution
+        source = resource_distribution.get_platform_config(plat)["version"]
+        diff_res = res_version_manager.calculate_manifest_diff(local_ver=source, platform=plat, allow_download=False)
+        saved = res_version_manager.manifest_download_status(plat, diff_res.get('remote_assethash'))
+        diff_res.update(remote_manifest_present=saved['present'], remote_manifest_valid=saved['valid'])
+        if not diff_res.get("success"):
+            # Version metadata is still useful when a manifest cannot be downloaded.
+            if diff_res.get("remote_assethash"):
+                return ok({**diff_res, "success": True, "diff_ready": False,
+                           "diff_error": ('请先下载最新清单，再重新检测差异' if not saved['present'] else diff_res.get("error", "清单差异暂不可用")),
+                           "has_update": diff_res.get("local_assethash") != diff_res.get("remote_assethash"),
+                           "total_local_assets": 0, "total_remote_assets": 0,
+                           "diff_summary": dict(added_count=0, added_total_bytes=0, removed_count=0,
+                                                modified_count=0, modified_total_bytes=0,
+                                                total_download_bytes=0, total_download_mb=0,
+                                                modified_files=[], added_files=[], removed_files=[])})
+            return err(GMErrorCode.SERVICE_ERROR, diff_res.get("error", "检查更新失败"))
+        return ok(diff_res)
+    except Exception as e:
+        return err(GMErrorCode.SERVICE_ERROR, f"检查官方更新异常: {e}")
+
+
+@gm_bp.route('/system/download_manifest', methods=['POST'])
+def post_download_manifest():
+    try:
+        import res_version_manager
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            raise ValueError('请求体必须为JSON对象')
+        platform=data.get('platform')
+        channel=res_version_manager.PLATFORM_CHANNEL_IDS.get(platform)
+        if not channel or (data.get('channel_id') is not None and str(data['channel_id']) != channel):
+            raise ValueError('平台与渠道不匹配')
+        from cdn_download_queue import get_manager
+        return ok(get_manager().enqueue(dict(platform=platform,filename=data.get('assethash'),kind='manifest',download=True)),
+                  msg='清单准备已加入全局下载队列')
+    except ValueError as error:
+        return err(GMErrorCode.PARAM_INVALID, str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR, f'下载清单失败: {error}')
+
+
+@gm_bp.route("/system/sync_update", methods=["POST"])
+@gm_bp.route("/sync_update", methods=["POST"])
+def post_sync_update():
+    """【写通道】启动官方新版本清单与增量资源后台下载同步。"""
+    try:
+        import res_version_manager
+        data = request.get_json(silent=True) or {}
+        from cdn_download_queue import get_manager
+        plats = data.get('platforms', ['pc'])
+        if not isinstance(plats,list) or not 1 <= len(plats) <= 3 or len(set(plats)) != len(plats):
+            raise ValueError('请选择1至3个不同渠道')
+        plans=[]
+        for platform in plats:
+            success,info,message=res_version_manager.probe_official_latest(platform)
+            if not success: raise ValueError(message)
+            if data.get('target_version') and str(data['target_version']) != info['version']:
+                raise ValueError('官方清单已变化，请重新检测')
+            plans.append(dict(platform=platform,filename=info['assethash'],scope='all',download=True,
+                kind='assets' if data.get('download_diff_assets',True) else 'manifest',prepare_manifest=True))
+        ids=[get_manager().enqueue(plan)['task_id'] for plan in plans]
+        return ok(dict(started=True,task_ids=ids),msg='已加入全局下载队列，不改变资源分发选择')
+    except Exception as e:
+        return err(GMErrorCode.SERVICE_ERROR, f"启动更新下载异常: {e}")
+
+
+@gm_bp.route("/system/update_progress", methods=["GET"])
+@gm_bp.route("/update_progress", methods=["GET"])
+def get_update_progress():
+    """【只读通道】获取当前后台下载任务的实时状态与传输速率。"""
+    try:
+        import res_version_manager
+        prog = res_version_manager.update_task_manager.get_progress()
+        return ok(prog)
+    except Exception as e:
+        return err(GMErrorCode.SERVICE_ERROR, f"获取更新进度异常: {e}")
+
+
+@gm_bp.route("/system/cancel_update", methods=["POST"])
+@gm_bp.route("/cancel_update", methods=["POST"])
+def post_cancel_update():
+    """【写通道】中断取消正在运行的更新同步任务。"""
+    try:
+        import res_version_manager
+        res_version_manager.update_task_manager.cancel()
+        return ok({"cancelled": True}, msg="已请求中断更新任务")
+    except Exception as e:
+        return err(GMErrorCode.SERVICE_ERROR, f"取消更新任务异常: {e}")
+
+
 # ===========================================================================
+@gm_bp.route('/system/resource_storage', methods=['GET', 'POST'])
+def resource_storage_config():
+    try:
+        from resource_storage import storage
+        if request.method == 'GET':
+            return ok(storage.status())
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise ValueError('请求体必须为JSON对象')
+        from cdn_transfer_control import gate
+        with gate.maintenance():
+            result = storage.apply(body.get('root'))
+            cdn_proxy.PLATFORM_DIRS = storage.directories()
+        return ok(result, msg='资源目录已保存并生效，旧缓存保留读取')
+    except (ValueError, TypeError) as error:
+        return err(GMErrorCode.PARAM_INVALID, str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR, f'存储目录操作失败：{error}')
+
+
+@gm_bp.route('/system/resource_storage/browse', methods=['GET'])
+def resource_storage_browse():
+    try:
+        from resource_storage import browse
+        return ok(browse(request.args.get('path')))
+    except (ValueError, OSError) as error:
+        return err(GMErrorCode.PARAM_INVALID, f'无法浏览服务器目录：{error}')
+
+
+@gm_bp.route('/system/download_queue', methods=['GET', 'POST'])
+def resource_download_queue():
+    try:
+        from cdn_download_queue import get_manager
+        manager=get_manager()
+        if request.method=='GET':
+            return ok(manager.status())
+        return ok(manager.enqueue(request.get_json(silent=True)),msg='已加入全局下载队列')
+    except (ValueError,KeyError,TypeError) as error:
+        return err(GMErrorCode.PARAM_INVALID,str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR,f'下载队列操作失败: {error}')
+
+
+@gm_bp.route('/system/download_queue/action', methods=['POST'])
+def resource_download_queue_action():
+    try:
+        from cdn_download_queue import get_manager
+        data=request.get_json(silent=True)
+        if not isinstance(data,dict): raise ValueError('请求体必须为JSON对象')
+        return ok(get_manager().action(data.get('action'),data.get('task_id')))
+    except (ValueError,KeyError,TypeError) as error:
+        return err(GMErrorCode.PARAM_INVALID,str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR,f'任务操作失败: {error}')
+
+
+@gm_bp.route('/system/download_queue/settings', methods=['POST'])
+def resource_download_queue_settings():
+    try:
+        from cdn_download_queue import get_manager
+        return ok(get_manager().settings(request.get_json(silent=True)))
+    except (ValueError,KeyError,TypeError) as error:
+        return err(GMErrorCode.PARAM_INVALID,str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR,f'队列设置失败: {error}')
+
+
+@gm_bp.route('/system/download_queue/catalogue', methods=['GET'])
+def resource_download_queue_catalogue():
+    try:
+        import cdn_proxy
+        from cdn_download_index import MANIFEST_NAME
+        files=[]
+        for platform in ('pc','android','ios'):
+            folder=os.path.join(cdn_proxy.DEFAULT_STATIC_DIR,platform)
+            if not os.path.isdir(folder): continue
+            with os.scandir(folder) as entries:
+                files.extend(dict(platform=platform,filename=e.name) for e in entries
+                             if MANIFEST_NAME.fullmatch(e.name) and e.is_file(follow_symlinks=False))
+        return ok(dict(files=sorted(files,key=lambda row:(row['platform'],row['filename']))))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR,f'读取清单目录失败: {error}')
+
+
+@gm_bp.route('/system/download_queue/report/<task_id>',methods=['GET'])
+def resource_download_queue_report(task_id):
+    try:
+        from cdn_download_queue import get_manager
+        return ok(get_manager().report(task_id))
+    except ValueError as error:
+        return err(GMErrorCode.PARAM_INVALID,str(error))
+    except Exception as error:
+        return err(GMErrorCode.SERVICE_ERROR,f'读取任务报告失败: {error}')
+
+
 # 7. 商店系统管理 (/shop)
 # ===========================================================================
 
@@ -2316,12 +2676,12 @@ def gm_recharge_status():
         return err(GMErrorCode.DB_NOT_READY, "数据库未就绪")
 
     uid = int(request.args.get("uid") or DEFAULT_UID)
-    import recharge_service
-    svc = recharge_service.RechargeService.get_instance(db=db)
-
     recharge_data = db.get_user_recharge(uid)
-    bp_data = db.get_or_create_battlepass(uid) if hasattr(db, "get_or_create_battlepass") else {}
-    newbie_act = db.get_newbie_activity(uid) if hasattr(db, "get_newbie_activity") else {}
+    # Status reads must work on an inactive save opened read-only.
+    newbie_rows = db.query('SELECT * FROM newbie_activity WHERE uid=?', (uid,))
+    newbie_act = newbie_rows[0] if newbie_rows else {}
+    from paid_entitlement_service import status as paid_status
+    rights = paid_status(db, uid)
 
     tot_num = recharge_data.get("total_recharge_num") or 0
     lim_num = recharge_data.get("time_limit_recharge_num") or 0
@@ -2335,10 +2695,11 @@ def gm_recharge_status():
         "time_limit_recharge_num": lim_num,
         "time_limit_recharge_yuan": float(lim_num),
         "battlepass": {
-            "pay_level": int(bp_data.get("pay_level") or 0),
-            "exp_14": db.get_item_num(uid, 14),
+            **rights['battlepass'],
             "bp_reward_status": int(newbie_act.get("bp_reward") or 0)
         },
+        "small_month_card": rights['small_month_card'],
+        "big_month_card": rights['big_month_card'],
         "noob_welfare": {
             "fr_first_gear": int(newbie_act.get("fr_first_gear") or 0),
             "fr_second_gear": int(newbie_act.get("fr_second_gear") or 0),
@@ -2354,6 +2715,35 @@ def gm_recharge_status():
         }
     }
     return ok(data)
+
+
+@gm_bp.route('/recharge/rights', methods=['POST'])
+def gm_recharge_rights():
+    db = get_db()
+    if not db:
+        return err(GMErrorCode.DB_NOT_READY, '数据库未就绪')
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return err(GMErrorCode.PARAM_INVALID, '权益参数必须为对象')
+    try:
+        uid = int(body.get('uid') or DEFAULT_UID)
+    except (TypeError, ValueError):
+        return err(GMErrorCode.PARAM_INVALID, 'UID格式无效')
+    if not db.query('SELECT 1 FROM users WHERE uid=?', (uid,)):
+        return err(GMErrorCode.USER_NOT_FOUND, '当前存档中不存在此玩家')
+    from paid_entitlement_service import update_rights
+    try:
+        data = update_rights(db, uid, {k:v for k,v in body.items() if k != 'uid'})
+    except ValueError as exc:
+        return err(GMErrorCode.PARAM_INVALID, str(exc))
+    # A notification failure cannot undo committed gifts or invite a second award.
+    try:
+        from server_net import push_paid_entitlements
+        push_paid_entitlements(uid, expected_db=db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('权益已保存，在线状态推送失败')
+    return ok(data, msg='权益状态已保存')
 
 
 @gm_bp.route("/recharge/reset", methods=["POST"])
@@ -2380,6 +2770,14 @@ def gm_recharge_reset():
     import recharge_service
     svc = recharge_service.RechargeService.get_instance(db=db)
     res = svc.reset_recharge_data(db, uid, scope=scope)
+
+    if scope in ('all', 'battlepass'):
+        try:
+            from server_net import push_paid_entitlements
+            push_paid_entitlements(uid, expected_db=db)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('付费状态已重置，在线推送失败')
 
     return ok(res, msg=f"付费数据重置成功: scope={scope}")
 
