@@ -83,6 +83,5 @@ linux_generated/
 /v5_server/cdn_cache/
 *.json.lock
 
-# M2 local test inputs and certificate generation state
-/tests/min_params.json
-/v5_server/.certgen.lock
+# Host-local admin password hash
+linux_admin_auth.json

@@ -73,13 +73,15 @@ def test_on_polyhedron_pass_advances_cond423():
             uid = 888001
             db.execute("INSERT OR REPLACE INTO task_cfg (task_id, condition, need, task_type, additional_parameter) VALUES (100007, 423, 1, 3, '[]')")
             db.execute("INSERT OR REPLACE INTO task (uid, task_id, progress) VALUES (888001, 100007, 0)")
+            db.upsert('polyhedron_hero', uid, {'hero_id': 1084}, keys=('uid', 'hero_id'))
+            run = PolyhedronRunManager.start_run(uid, db, [1084], [], 1)
             if command == 18012:
-                PolyhedronRunManager.save_run(uid, db, {
-                    'tier_id': 3010, 'state': 2, 'difficulty': 1, 'coins': 0,
-                    'hero_list': [], 'artifact_list': [],
-                    'start_info': {'beacon_id_list': [], 'terminal_id_list': []},
-                    'current_stage': {'stage_id': 1, 'reward': {'item_list': []}},
-                })
+                run.update(tier_id=3010, cleared_tiers=[3010])
+                run['current_stage'].update(
+                    save_point=2,
+                    reward={'round': 0, 'item_list': [{'class': 6, 'params': [101701]}]},
+                )
+                PolyhedronRunManager.save_run(uid, db, run)
             server = core.Core(db=db, generator=generator, codec_encode=encode,
                                codec_decode=decode, log=lambda *a, **k: None)
             response = server.dispatch(core.CoreRequest(command, payload, uid=uid))
