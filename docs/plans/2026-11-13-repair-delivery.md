@@ -2,23 +2,23 @@
 
 ## 概览
 
-本轮已交付测试恢复、GM 写入、启动／周期检查、导入首版安全路径、玩法取证和 AI 离线稿件。整份计划尚未收官。证书部署、游戏客户端、真实抓包缺证和 AI 内容审校仍有明确门禁。
+已交付测试恢复、GM 写入、启动／周期检查、导入首版安全路径、玩法取证和 AI 离线稿件。A1 续作已完成证书部署、Windows 信任和本机 HTTPS 验证。整份计划尚未收官，游戏客户端、真实抓包缺证和 AI 内容审校仍有门禁。
 
-下一步先决定是否授权 A1，再补齐 G 的同会话邮箱与未审核协议证据。10 人人格稿见 [审校稿](2026-11-13-ai-pilot-review.md)。
+用户确认后，A2 的 10 个必需脚本已重新执行，均退出 `0`。本轮按要求在 A2 完成后停止，确认后才开始 B1。G 的同会话邮箱与未审核协议证据仍待补齐。10 人人格稿见 [审校稿](2026-11-13-ai-pilot-review.md)。
 
-修复起点为 `4bec98f16ba8dc95f4c01d104bcdc5b88d77ed10`。全部未提交内容与交付记录一并纳入本地提交，未推送或部署。提交包含原有 M3／M4 计划、`_review/` 和参数文件。
+修复起点为 `4bec98f16ba8dc95f4c01d104bcdc5b88d77ed10`。前轮全部未提交内容已保存为本地提交 `240ac38`，包含原有 M3／M4 计划、`_review/` 和参数文件。A 阶段证书、台账及[交接提示词](2026-11-13-repair-handoff.md)一并保存为收官本地提交；仅在 A1 部署本机证书与 Windows 信任，未推送。收官提交可按交接文件的 Git 历史定位。
 
 ## 计划覆盖
 
 | 项目 | 状态 | 交付位置与停止原因 |
 | --- | --- | --- |
-| A1 | partial | 进度台账 A1：证书检查退出 1，根证书／私钥不配对；未获当轮专项授权，未变更 Windows 信任。 |
-| A2 | done（消费者范围） | 六个直接脚本、Linux 41、Issue #8 17 均退出 0；保留原归档缺失的 1 项 skip，原生核对另列失败。 |
+| A1 | done（证书级验收） | 进度台账 A1 续作：文件检查退出 0，两处 Windows 根信任及链验证通过；实际 HTTPS 200、根／叶指纹核对及错误主机名拒绝通过。严格 CRL 检查限制单列，未验游戏客户端。 |
+| A2 | done（消费者范围） | 本轮 10 个必需脚本均退出 0，156 次运行含继承重复；Linux 41 全过。保留 1 项历史归档 skip，原生缺证及资源关闭告警另列，下一项待确认。 |
 | B1 | partial | 基础资产回归和首领奖励已执行；周期原 before 归档缺失，M2 12 项实机全部阻塞。 |
 | B2 | not done | 三关清单已登记；无当前同场日志或转储，未猜根因或规避。 |
 | B3 | partial | 三预设内存构建和前驱／分支约束通过；游戏客户端未验。 |
 | C1～C3 | done（源码、API、浏览器） | GM 10 项和真实页面回读通过；游戏重登及回放／兑换／表情体验未验。 |
-| D | partial | 7 项 API／parser 检查和浏览器保存／周期重置通过；无 .NET SDK，未实测宿主重启。 |
+| D | partial | 7 项 API／parser 检查和浏览器保存／周期重置通过；宿主已在 A1 构建通过，尚未接续 D 的托管重启验收。 |
 | E | done（契约与取证材料） | 五域差距、来源哈希、40 图矩阵和下一步样本要求已交付；缺证玩法仍阻塞。 |
 | F | partial | 15 入口分别记录；291 项脚本检查仍含 9 个原生资料错误；自然游玩全部未验。爬塔和换装池另有内存 Core／冷读证据。 |
 | G | partial | 合成账号正常挂载／wire 核对及原子发布通过；真实 9/26 抓包缺 10 封普通邮件和 144 个未审核协议，未发布。 |
@@ -29,6 +29,8 @@
 ## 实际验证命令
 
 下列命令均从仓库根目录运行。日志在 `selftest_tmp/priority-repair/`。继承测试有重叠，不把各行相加作为独立覆盖数。
+
+A2 本轮重跑了下表中的共享、计时、结算边界、角色响应、入场、溢出、教学、提交恢复、Issue #8 与 Linux 共 10 个命令，结果均与表中一致。新日志在 `a2-recheck-20261113-180246/`，逐项命令与退出码见 `results.json`；断言与数据保护审计见同目录 `summary.json` 和进度台账 A2 复验。
 
 | 命令 | 实际结果 |
 | --- | --- |
@@ -58,7 +60,10 @@
 | `python -B -X utf8 tests/m3_import_check.py` | exit 0，14 项，31.215 秒；覆盖源状态、发布和并发，真实输入保持阻塞。 |
 | `npm run check`（web_src） | exit 0。 |
 | `npm run build`（web_src） | exit 0；保留原 chunk 体积提示，未弱化构建配置。 |
-| `dotnet build LocalServer/LocalServer.csproj --no-restore` | 未通过；无 .NET SDK，实际退出 -2147450735。 |
+| `dotnet build LocalServer/LocalServer.csproj -p:Platform=x64 --nologo -v:minimal` | A1 续作 exit 0；SDK 10.0.404，0 警告、0 错误。前轮缺 SDK 的失败记录仍保留。 |
+| `python -B -X utf8 v5_server/gen_cert.py --check --json` | A1 续作 exit 0，ready=true，问题列表为空；部署前 exit 1 的证据仍保留。 |
+| `& ./selftest_tmp/priority-repair/a1-deploy.ps1` | exit 0；复用构建后的 CertificateManager，生成／安装退出 0，两库信任与 Windows 链通过。 |
+| `& ./selftest_tmp/priority-repair/a1-native-https.ps1` | exit 0；默认 Windows .NET TLS，HTTPS 200，根／叶指纹匹配，错误主机名拒绝。未设置验证回调；严格 CRL curl 失败单列在进度台账。 |
 
 浏览器 C 证据是临时同 UID 双存档。D 证据是临时启动配置与周期库。D 实读 HTTPS 11443、CDN relay；周期从 9000/15000 变为 0/0，货币 2=777、材料 41201=7 保持。两个临时服务均已停止。[启动画面](../../selftest_tmp/priority-repair/d-launch-browser.jpg)和[周期画面](../../selftest_tmp/priority-repair/d-cycle-browser.jpg)不是游戏客户端证据。
 
@@ -67,7 +72,7 @@
 | 原缺失模块 | 当前入口与保留行为 |
 | --- | --- |
 | test_battle_entry_timing | 新 BattleEntryTests；握手、Ready、PONG 精度、序列、重连和异常包。 |
-| audit_core_regular_old_settlement_probe | test_settlement_retry_boundary；真实 Core／handler／SQL／codec，保留收据、重试、跨周期和 pending 身份断言。 |
+| audit_core_regular_old_settlement_probe | test_settlement_retry_boundary；真实 Core／handler／SQL／codec，以 `_settle_frames` 夹具限定收据、重试、跨周期和 pending 身份断言，不代表完整结算引擎。 |
 | test_cost_fallback_boundary | test_hero_response_boundary；真实升级、扣费和响应失败回滚。 |
 | test_entity_rollback_notifications | test_hero_response_boundary；真实通知、编码失败、状态恢复和顺序断言。 |
 | test_issue_hero_payload | verify_battle_entry_fail_closed；实际英雄载荷、入场身份和异常拒绝。 |
@@ -86,7 +91,7 @@
 | 确认缺陷 | 注册表读写异常被吞、大小写重复、写后复核丢旧表、删除顺序。 | fixed：共用跨进程锁、原子写回／还原、稳定映射、先提交再回收；已扫，无第二处。 |
 | 确认缺陷 | 导入探测污染、只验协议号、UID 全表替换、邮箱类型、结束帧和残缺连接。 | fixed：纯映射、实际 wire 数值、最终 UID 重建、类型 1、原帧头及唯一双向流。 |
 | 确认缺陷 | 暂存误认旧目录／链接目标；模板正文与 hash 不一致。 | fixed：本次目录所有权、原路径清理、冻结模板同源字节；定向红绿和异模型复核。 |
-| 未验证项 | M2、三关、小游戏自然游玩、真实恢复档、Windows 宿主。 | filed：客户端验收表和导入契约记录具体缺项；不标通过。 |
+| 未验证项 | M2、三关、小游戏自然游玩、真实恢复档、Windows 宿主托管重启。 | filed：客户端验收表和导入契约记录具体缺项；不标通过。 |
 | 可选建议 | 删除 CLI 的第一次 RAM 构建。 | rejected：固定公开接口和锁内最终重建保留；已删除重复隔离子进程。 |
 
 执行者与复核者为根 Codex 和 gpt-6-luna high。A2／D／E／H 文档和 G 初版由子代理执行；共享业务由根代理串行修改。Luna 分别复核 C、G、H 共享路径，G 最后复核明确确认暂存、模板来源和最终 UID 修复。两者是不同模型；未将同模型重复检查算作第二模型。

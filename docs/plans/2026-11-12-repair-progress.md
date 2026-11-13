@@ -4,17 +4,17 @@
 
 ## 当前结果与下一步
 
-已恢复 A2 直接调用脚本，完成 GM 首批操作、启动／周期专项、控制台浏览器验收和 H1 离线实现。导入已通过合成账号构建、实际挂载／登录及并发发布检查；真实抓包恢复仍缺证。证据位于 `selftest_tmp/priority-repair/`。游戏客户端验收仍受证书部署与真实客户端条件限制。
+已恢复 A2 直接调用脚本，完成 GM 首批操作、启动／周期专项、控制台浏览器验收和 H1 离线实现。导入已通过合成账号构建、实际挂载／登录及并发发布检查；真实抓包恢复仍缺证。A1 证书级验收已完成；用户确认后，本轮 A2 的 10 个必需脚本均退出 `0`。本轮完成 A2 后停止，确认后才能开始 B1。游戏客户端尚未运行。
 
 | 任务 | 源码／材料 | 自动检查 | 客户端验收 | 下一步与门禁 |
 | --- | --- | --- | --- | --- |
-| A1 | 只读取证完成；部署暂停 | 退出 `1`，根证书与私钥不匹配 | 阻塞 | 当轮未授权证书重部署与系统信任变更 |
-| A2 | 六个直接调用脚本及 Linux 旧夹具已恢复 | 共享 23、Issue #8 17、Linux 41 通过；六脚本全部退出 `0` | 不适用 | 保留 1 项原归档缺失 skip；原生对照单独失败 |
+| A1 | 已重部署证书与分发文件，安装两处 Windows 根信任 | 文件检查退出 `0`；Windows 链、HTTPS 200、指纹及错误主机名检查通过 | 未运行，不属于本票证书级探针 | done；用户已确认接续 A2 |
+| A2 | 六个消费者及相关专项复验完成，本轮未改代码 | 10 个脚本均退出 `0`，156 次执行含继承重复；Linux 41 全过 | 不适用 | done（消费者范围）；保留 1 项历史归档 skip，资源告警单独登记；等待确认 B1 |
 | B1 | 已执行隔离资产与基础回归 | 结算串行 5、奖励回滚 16、首领奖励 20 通过；周期 31 项含 2 个归档错误 | 12 项阻塞 | 实际客户端未运行，不能填为通过或宣称发现 0 个客户端缺陷 |
 | B2 | 保留三关复验清单 | 不适用 | 1032018／1032019／1032020 均阻塞 | 缺当前同场日志与客户端转储，不猜根因或规避范围 |
 | B3 | 复用现有解锁实现，未改业务 | 三预设内存构建及前驱／分支约束通过 | 阻塞 | 预通数分别为 0／7／48，不是解锁故障 |
 | C1～C3 | 已实现，保留路由与响应结构 | GM 10 项通过；前端 check/build 通过 | 浏览器隔离库存交互通过；游戏重登未验 | 真实存档离线门禁保留 |
-| D | 新增专项，未重写启动／周期业务 | 7 项通过 | 浏览器保存／回读、非法输入、周期确认／取消／滚动／重置通过；宿主阻塞 | .NET SDK 缺失，未执行真实托管重启 |
+| D | 新增专项，未重写启动／周期业务 | 7 项通过；宿主在 A1 续作中构建通过 | 浏览器保存／回读、非法输入、周期确认／取消／滚动／重置通过；托管重启未验 | SDK 已就绪；D 尚未接续，等待逐项确认 |
 | E | 五域契约差距与取样步骤完成 | 24 项来源哈希已核对；原生审计仍缺素材 | 未执行 | 玩法实现票保持缺证阻塞 |
 | F | 15 入口及另两项分开登记 | 运行专项部分通过；原生导出核对缺 Lua | 全部自然游玩／重登未验 | 自动检查不替代客户端 |
 | G | 首版映射、独立验证和原子发布已实现；真实恢复范围仍 partial | 合成账号及失败／并发检查通过，见下文；真实预览缺 10 封普通邮箱及 144 个未审核协议 | 阻塞 | 未发布真实恢复档，不能把合成正向检查算作真实导入或游戏登录通过 |
@@ -40,7 +40,34 @@
 - 断言保留证据：`a2-test-method-coverage.json` 核对所有原测试方法仍在；`a2-assertion-count-diff.json` 未发现断言数量减少。原生 Lua 核对仍缺源码和 parser，单独失败，未用打包配置冒充原生对照。
 - 功能复核：根代理复核实际 Core／AccountDB／codec 调用与失败注入，Luna 执行、根代理异模型复核。复杂度删除清单：缺失模块导入、重复 AST 助手、伪造 Core／数据库夹具、单调用教学包装。现有 `selected()` 扩展后由原测试和角色测试共用。
 
-### A1：只读证书取证
+### A2：本轮隔离复验
+
+- 起点：`240ac3888b6db91ff548bf930ed1a133d90e4f43`，保留 A1 的 9 个未提交文件改动。用户明确授权“继续 A2”；本轮没有启动 B1。
+- 产物：更新现有状态文档及忽略目录中的实际日志、方法／断言审计和哈希回执。没有新增、删除或修改生产模块、类、函数、测试或配置，净增为 `0`。
+- 命令：从仓库根目录执行 `python -B -X utf8 v5_server/tools/<脚本>`。10 份原始日志与逐项命令保存在 `selftest_tmp/priority-repair/a2-recheck-20261113-180246/` 的 `results.json`。
+
+| 范围 | 脚本 | unittest 执行数 | 实际结果 |
+| --- | --- | --- | --- |
+| 直接消费者 | `verify_report_small_fixes.py` | 23 | exit 0，OK |
+| 直接消费者 | `test_settlement_retry_boundary.py` | 8 | exit 0，OK |
+| 直接消费者 | `test_hero_response_boundary.py` | 13 | exit 0，OK |
+| 直接消费者 | `verify_battle_entry_fail_closed.py` | 12 | exit 0，OK，含 1 项历史归档 skip |
+| 直接消费者 | `verify_overflow_ownership.py` | 21 | exit 0，OK |
+| 直接消费者 | `verify_rogueteam_tutorial_skip.py` | 5 | exit 0，OK |
+| 计时专项 | `test_battle_entry_timing.py` | 6 | exit 0，OK |
+| 提交恢复专项 | `test_commit_recovery.py` | 10 | exit 0，OK |
+| Issue #8 | `verify_issue8_merge.py` | 17 | exit 0，OK |
+| Linux 夹具 | `test_linux_setup.py` | 41 | exit 0，OK |
+
+- 计数边界：总数 `156` 来自 10 份 unittest 日志的 `Ran ... tests`，含继承重复，不是独立覆盖数。唯一 skip 为指定 before 归档缺失的旧版入场复现；没有新增 skip、删除断言或更改基线。原生 Lua／parser 对照不属于本轮 10 个命令，缺证状态继续单列，不算本轮通过。
+- 原断言核对：重新与 `4bec98f` 比较，132 个旧定义测试方法全部保留，未发现断言数量下降；当前共 140 个定义方法，多出的 8 个为原已交付的 6 个计时测试和 2 个溢出测试。10 个脚本的 Git 过滤后 blob 与 AST 均和 `HEAD` 一致。9 个原始字节哈希差异仅为 Windows CRLF；详见 `original-assertion-audit.json` 和 `summary.json`。静态数量核对只辅助复核，行为结论以原始日志为准。
+- 关键行为：Linux 两个启动测试实际观察 `main.main` 接收的认证环境变量、旧变量清除、配置参数与 CLI 覆盖；半自动向导经 `nginx_mocks()` 隔离。战斗六项行为、真实 builder 的三个教学预设、贴纸与多目标转换均有本轮执行结果。
+- 覆盖边界：结算脚本调用真实 Core／AccountDB／codec，但以 `_settle_frames` 夹具限定收据、重试、跨周期及 SQL／缓存边界，不代表完整结算引擎。计时专项直接执行 `battle_server` 的内存报文路径，不需要账号库。
+- 数据保护：测试执行期间，A1 的 9 个改动文件、`account.db` 和 3 个证书／密钥／链文件共 13 个路径的 SHA256 不变；详见 `before.json` 与 `summary.json`。没有启动完整服务、修改系统信任或写入真实账号。
+- 处置：已确认的资源关闭告警按计划另立本地票 `A2-W01`；Rogue schema 告警记为未验证观察项，见优先级清单 R02。未通过吞掉告警或修改 schema 使日志安静。
+- 功能复核：根代理实际运行，`gpt-6-luna`／`high` 独立核对 8 个缺失依赖映射、原始日志、Linux 三项修复和断言保留。单独复杂度复核删除清单：无。A2 的消费者范围完成，按用户要求停止，等待确认 B1。
+
+### A1：首次只读取证（历史）
 
 - 输入／起点：本台账起点提交；现有 `sdk_ca.crt`、`sdk_ca.key`、`sdk_key.pem`、`sdk_cert.pem` 及分发副本。
 - 命令：`python -B -X utf8 v5_server/gen_cert.py --check --json`。
@@ -50,6 +77,21 @@
 - 停止原因：总计划 A1 的原文为“确认执行当轮是否已明确授权证书重部署和系统信任变更”。当前仅授权执行计划，未给这项专项授权。Windows 信任和实际 HTTPS 握手尚未通过。
 - 交付前复验仍退出 `1`，指纹及不配对原因不变，见 `a1-cert-check-final.json`。
 - 功能复核：确认错误状态与根因；复杂度复核删除清单：无。
+
+### A1：获授权后的部署与验收
+
+- 起点：`240ac3888b6db91ff548bf930ed1a133d90e4f43`。用户本轮明确授权 A1 证书修复，并要求每项完成后停止，确认后才能开始下一项。本轮只执行 A1。
+- 产物：更新原有根证书、服务证书、Windows 分发副本和两份 iOS 描述文件；没有新增或删除生产模块、类、函数，净增为 `0`。私钥及全部备份保留在本机，不写入日志或 Git。
+- 输入复验：`gen_cert.py --check --json` 退出 `1`；根指纹 `BC96E5CFBAE90A1460C3F66FC2A2EDA4951783F9` 与私钥不配对。本项目没有运行服务；实际 Windows 用户为 `<user>`。
+- 备份：8 个文件完整复制到 `selftest_tmp/priority-repair/a1-backup-20261113-173444/`，逐一核对 SHA256；生成器另产生 8 份同目录 `.before_cert_*` 副本，也与部署前哈希一致。清单为 `a1-backup-manifest.json`，复核结果为 `a1-backup-verification.json`。回滚时先停服务，再按清单恢复同一组文件；本轮没有删除旧根信任。
+- SDK／构建：检测到 .NET SDK `10.0.404`。`dotnet build LocalServer/LocalServer.csproj -p:Platform=x64 --nologo -v:minimal` 退出 `0`，0 个警告、0 个错误；没有执行 D 的托管重启验收。
+- 部署路径：现有启动壳清单要求 `requireAdministrator`，Computer Use 无法读取高完整性窗口。改由 `a1-deploy.ps1` 加载刚构建的 `LocalServer.dll`，调用原有 `CertificateManager`，保留检查、备份、参数选择、生成后检查及精确指纹验证顺序；没有修改部署实现或权限清单。
+- 部署结果：生成参数为 `--force-ca`，生成与本机安装退出码均为 `0`。新根指纹为 `E2808B9A40765506D3033BE32A01E8F903644481`；`InCurrentUser=true`、`InLocalMachine=true`、`ChainValid=true`、`Ready=true`，问题列表为空，见 `a1-deployment-receipt.json`。根有效至 `2036-11-10T09:39:44Z`，叶证书有效至 `2027-11-13T09:39:44Z`。
+- 文件复验：`python -B -X utf8 v5_server/gen_cert.py --check --json` 退出 `0`；`requires_root_replacement=false`、`needs_leaf_renewal=false`、`needs_distribution_sync=false`，见 `a1-cert-check-repaired.json`。
+- HTTPS 探针：`a1-https-probe.py` 调用真实 `build_https_app(None)` 与 `start_https`，只监听 `127.0.0.1:5278`，禁用额外 HTTP 端口。构建应用前后 `account_db._db` 均为 `None`，没有加载真实账号。`a1-native-https.ps1` 用默认 `SslStream.AuthenticateAsClient("open.ys4fun.com")`，没有自定义验证回调；TLS 1.2 握手成功，`GET /cert` 返回 `200`，对端叶指纹与本机文件一致，下载根指纹与新根一致。错误主机名触发 `AuthenticationException`／`RemoteCertificateNameMismatch`，见 `a1-native-https-receipt.json`。
+- 保留限制：Schannel curl 的默认严格吊销检查退出 `35`，原因为 `CRYPT_E_NO_REVOCATION_CHECK`；错误主机名退出 `60`，原因为 `SEC_E_WRONG_PRINCIPAL`。没有将前者写为通过。通过的 .NET 默认 TLS 路径与启动壳既有 `X509RevocationMode.NoCheck` 策略一致；没有增加 CRL、修改生产策略或跳过主机名校验。此结果不代表完整 `main.py` 启动、按钮交互或游戏客户端验收。
+- 收尾：启动壳 PID `20868`、探针 PID `33416`、挂起清理子进程 PID `30972` 及其父进程均已退出；`5278` 没有监听。已确认生成锁未被持有，删除本轮留下的单字节运行锁。最终实际用户回读确认两库中新根存在、所有旧根记录保留、项目进程列表为空，见 `a1-cleanup-receipt.json` 与 `a1-windows-after.json`。前期清理中止没有记为成功；以最终回读为准。
+- 功能复核：根代理执行，`gpt-6-luna`／`high` 独立复核共享部署与信任边界、备份和真实回读。复核发现最终回执的 CurrentUser 原始枚举含重复新根指纹；已补充说明，保留原始输出，只按精确指纹存在性核验，不把数组长度作为安装数量。复杂度复核删除清单：无；只使用已有部署实现，操作脚本保留在忽略的证据目录。
 
 ### B：基线、资产与新档
 
@@ -78,7 +120,7 @@
 
 - `python -B -X utf8 v5_server/tools/verify_launch_cycles.py`：退出 `0`，7 项通过，见同名日志。
 - 临时配置和真实 Flask 覆盖五端口非法值（负数、超上限、布尔、字符串）、未知字段、保存失败保旧；真实 `main.main` parser 的保存值与显式 CLI 覆盖；认证／CSRF、在线重置拒绝、旧 token、重置不发奖、不重复累计。
-- 托管／非托管进程仅验证 Popen／Timer 边界，没有启动真实宿主。`dotnet build LocalServer/LocalServer.csproj --no-restore` 实际返回 `-2147450735`，原因是没有 .NET SDK；见 `dotnet-build.log`。此项不是构建通过。
+- 前轮仅验证托管／非托管进程的 Popen／Timer 边界，没有启动真实宿主。当时 `dotnet build LocalServer/LocalServer.csproj --no-restore` 返回 `-2147450735`，原因是没有 .NET SDK，见 `dotnet-build.log`。用户安装 SDK 后，A1 续作构建通过；D 的托管重启仍未验。
 - 执行者 Luna high，根以不同模型复核。复杂度删除清单：单调用 `launch_values` 助手内联，避免一次性包装。
 - IAB 浏览器实际输入 HTTPS 端口 `65536`，页面显示错误并禁用保存。改为 `11443`、CDN `relay` 后保存、重新读取均一致；配置文件实际为这两项 override。周期卡片从 9,000／15,000 开始，取消保持、滚动可见后续档位；确认后回读为 0／0，领取列表为空，下次刷新时间不变。SQLite 实读货币 `2=777`、材料 `41201=7` 保持。见 `d-browser-readback.json`、`d-launch-browser.jpg` 和 `d-cycle-browser.jpg`。临时服务已停止，未重启真实宿主。
 
@@ -104,8 +146,8 @@
 
 ## 接续与停止点
 
-源码、自动检查、浏览器和游戏客户端结果已分开登记。最终 `git diff --check` 退出 `0`；新产物尾随空白检查无问题。全部未提交内容已纳入本地提交，未推送或部署；没有修改真实账号或 Windows 信任。
+源码、自动检查、浏览器和游戏客户端结果已分开登记。前轮快照已本地提交为 `240ac38`；A 阶段证书、台账和[交接提示词](2026-11-13-repair-handoff.md)一并纳入收官本地提交，未推送。证书及 Windows 信任已按 A1 授权部署；A2 只复验现有隔离脚本，没有修改真实账号。
 
-继续 A1 需要当轮明确授权证书重部署和信任变更。G 需要同会话普通邮箱明细、可解析正文及 144 个协议的归属／状态证据。M2／B2／F 需要实际游戏客户端；D 宿主构建需要 .NET SDK。H1 待 10 稿审校；H2 保留 M2 真机门禁。
+A 阶段已完成计划内的 A1 证书级验收与 A2 消费者复验；保留上文的历史归档、原生缺证和严格 CRL 检查限制。当前停止，确认后才能开始 B1 的资产一致性与 M2 复验。G 仍需要同会话普通邮箱明细、可解析正文及 144 个协议的归属／状态证据。M2／B2／F 需要实际游戏客户端；D 宿主已构建，但托管重启未验。H1 待 10 稿审校；H2 保留 M2 真机门禁。
 
-按你新增的额度规则，读取了账号的 5 小时和周窗口；最近一次分别剩余 47% 和 30%，未触发剩余 10% 停点。没有使用额度重置或购买。此时停在上述授权和补证门禁。
+按你的额度规则，A2 开始时读取账号的 5 小时和周窗口，分别剩余 30% 和 89%，未触发剩余 10% 停点。没有使用额度重置或购买。当前按逐项确认要求停在 A2，等待确认后才能开始下一项。

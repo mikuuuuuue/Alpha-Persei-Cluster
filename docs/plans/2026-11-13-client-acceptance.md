@@ -8,7 +8,7 @@
 - B2 三关和 B3 三预设：客户端均阻塞。B3 只有全新内存存档的自动遍历结果。
 - F：15 个入口都没有客户端验收。现有 15 份专项日志共运行 291 项，6 份全通过；9 份各有 1 个依赖错误，断言失败为 0。
 - 爬塔、换装池：本轮没有客户端结果；内存 Core 与冷读专项见文末，不能替代客户端。
-- A1 证书检查显示根证书与私钥不匹配，需要重部署根证书、续签叶子证书并同步分发。本轮没有系统信任变更授权，因此不能启动客户端验收。
+- A1 已按本轮授权完成根替换、叶续签、分发同步和两处 Windows 根信任安装；文件、Windows 链与本机 HTTPS 探针通过。游戏客户端未运行，按用户要求等待每项完成后的确认。
 
 ## M2：12 项数值走查
 
@@ -91,9 +91,9 @@
 | 项目 | 源码／自动检查 | 客户端或宿主 |
 | --- | --- | --- |
 | C：Inventory 清理和套装 | `c-after.log`：Ran 10，errors 0，failures 0。 | IAB 临时双存档回读：3 星套装 6 件；清理 1 行材料；同 UID 的 `other.db` 数量仍为 7；货币为 777。详情见 [c-browser-readback.json](../../selftest_tmp/priority-repair/c-browser-readback.json)。这是控制台浏览器证据，不是游戏客户端验收。 |
-| A1：证书 | [a1-cert-check.json](../../selftest_tmp/priority-repair/a1-cert-check.json) 显示 `ready=false`、`root_usable=false`，且根证书和根私钥不匹配。 | 阻塞：本轮无系统信任变更授权；不部署证书、不启动客户端。 |
+| A1：证书 | [修复后文件检查](../../selftest_tmp/priority-repair/a1-cert-check-repaired.json) 退出 0；两库信任、Windows 链、实际 HTTPS 200 和根／叶指纹核对通过。 | 证书级探针完成；游戏客户端未验。严格 CRL curl 失败仍保留，详见进度台账 A1 续作。 |
 | D：启动与周期浏览器 | `d-browser-readback.json`：HTTPS 11443、CDN relay 持久化；介质攫取 0／0、领取列表清空，货币 2=777、材料 41201=7 保持。 | IAB 已实测非法端口反馈、保存／重新读取、重置取消／确认、列表滚动及刷新；临时服务已停止。[启动画面](../../selftest_tmp/priority-repair/d-launch-browser.jpg)、[周期画面](../../selftest_tmp/priority-repair/d-cycle-browser.jpg)。 |
-| Windows 宿主 | `dotnet-build.log` 记录没有 .NET SDK。 | 阻塞：未构建宿主，未实测托管重启。 |
+| Windows 宿主 | A1 续作以 SDK 10.0.404 构建通过，0 警告、0 错误。前轮 `dotnet-build.log` 保留缺 SDK 的历史失败。 | 已构建；D 的托管重启未实测，等待逐项确认。 |
 
 ## 共享路径与复杂度复核
 
