@@ -9,6 +9,7 @@ from pathlib import Path
 import socket
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch, Mock
 
@@ -21,9 +22,12 @@ import linux_nginx as ng
 class LinuxSetupTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        archive = ROOT.parent / "archive/linux_setup_redesign_20261029/fixtures"
-        archive.mkdir(parents=True, exist_ok=True)
-        cls.sandbox = Path(tempfile.mkdtemp(prefix="probe_", dir=archive))
+        cls.temp_root = tempfile.TemporaryDirectory(prefix="linux_setup_")
+        cls.sandbox = Path(cls.temp_root.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp_root.cleanup()
 
     def config(self, **updates):
         return dict(lm.DEFAULTS, schema=2, usage="local", nginx=False,
@@ -207,11 +211,17 @@ class LinuxSetupTests(unittest.TestCase):
             stack.enter_context(patch.object(lm, "load_config", return_value=config))
             stack.enter_context(patch.object(Path, "exists", return_value=True))
             stack.enter_context(patch.object(lm.os, "chdir"))
-            stack.enter_context(patch.object(lm.runpy, "run_path", side_effect=lambda *a, **k: observed.append(os.environ.get("AG_ADMIN_PASSWORD_FILE"))))
             stack.enter_context(patch.dict(os.environ, {}, clear=False))
             os.environ.pop("AG_ADMIN_PASSWORD_FILE", None)
+            game_main = types.ModuleType("main")
+            game_main.main = lambda args, **kwargs: observed.append(
+                (list(args), kwargs, os.environ.get("AG_ADMIN_PASSWORD_FILE")))
+            stack.enter_context(patch.dict(sys.modules, {"main": game_main}))
             lm.main(["run"])
-        self.assertEqual(observed[0], str(auth_file.resolve()))
+        args, kwargs, password_file = observed[0]
+        self.assertEqual(password_file, str(auth_file.resolve()))
+        self.assertEqual(args, lm.config_args(config))
+        self.assertEqual(kwargs, {"launcher_arg_count": len(lm.config_args(config))})
 
     def test_service_template_contains_admin_password_file_when_present(self):
         target = self.folder()
@@ -230,16 +240,19 @@ class LinuxSetupTests(unittest.TestCase):
             stack.enter_context(patch.object(lm, "load_config", return_value=config))
             stack.enter_context(patch.object(Path, "exists", return_value=True))
             stack.enter_context(patch.object(lm.os, "chdir"))
-            stack.enter_context(patch.object(lm.runpy, "run_path", side_effect=lambda *a, **k: observed.append((sys.argv[:], os.environ.get("AG_ADMIN_AUTH_FILE")))))
-            stack.enter_context(patch.object(sys, "argv", ["test"]))
             stack.enter_context(patch.dict(os.environ, AG_ADMIN_AUTH_FILE=str(lm.CONFIG)))
+            game_main = types.ModuleType("main")
+            game_main.main = lambda args, **kwargs: observed.append(
+                (list(args), kwargs, os.environ.get("AG_ADMIN_AUTH_FILE")))
+            stack.enter_context(patch.dict(sys.modules, {"main": game_main}))
             lm.main(["run", "--no-dns", "--https-port", "19443", "--db", "中文.db"])
-        argv, auth = observed[0]
+        argv, kwargs, auth = observed[0]
         self.assertIsNone(auth)
-        self.assertNotIn("--dns", argv)
-        self.assertNotIn("--no-dns", argv)
+        self.assertIn("--dns", argv[:kwargs["launcher_arg_count"]])
+        self.assertIn("--no-dns", argv[kwargs["launcher_arg_count"]:])
         self.assertNotIn("--res-version", argv)
         self.assertEqual(argv[-4:], ["--https-port", "19443", "--db", "中文.db"])
+        self.assertEqual(kwargs["launcher_arg_count"], len(lm.config_args(config)))
 
     def test_termux_prepare_never_invokes_pip_or_venv(self):
         with patch.object(lm, "is_termux", return_value=True), patch.object(lm.subprocess, "run") as run, self.assertRaisesRegex(ValueError, "pkg install"):
@@ -488,11 +501,8 @@ class LinuxSetupTests(unittest.TestCase):
             stack.enter_context(patch.object(lm, "is_termux", return_value=False))
             stack.enter_context(patch("builtins.input", side_effect=answers))
             stack.enter_context(patch.object(lm, 'ask_password_prompt', side_effect=lambda prompt: input(prompt)))
-            stack.enter_context(patch.object(ng.shutil, 'which', return_value='/usr/sbin/nginx'))
+            stack.enter_context(self.nginx_mocks(target, game_conf))
             stack.enter_context(patch.object(ng, 'dump_config', side_effect=dump))
-            stack.enter_context(patch.object(ng, 'pid_running', return_value=True))
-            stack.enter_context(patch.object(ng, 'health'))
-            stack.enter_context(patch.object(ng, 'prepare_certificate'))
             reload = stack.enter_context(patch.object(ng, 'command'))
             stack.enter_context(contextlib.redirect_stdout(output))
             lm.setup()
@@ -559,7 +569,20 @@ class LinuxSetupTests(unittest.TestCase):
         (target / "account.db").write_bytes(b"opaque-save-fixture")
 
         site_conf = target / "real_site.conf"
-        site_conf.write_text("server {\n    server_name ag.moriaruruka.com;\n}\n", encoding="utf-8")
+        extension = target / "extension" / "ag.moriaruruka.com"
+        extension.mkdir(parents=True)
+        panel_conf = extension / ng.PANEL_NAME
+        for name in ("sdk_cert.pem", "sdk_key.pem", "sdk_ca.crt"):
+            (target / name).write_text("fixture", encoding="utf-8")
+        site_conf.write_text(
+            f'server {{\n    listen 443 ssl;\n    server_name ag.moriaruruka.com;\n'
+            f'    include "{extension / "*.conf"}";\n}}\n', encoding="utf-8")
+        game_conf = target / ng.NAME
+
+        def dump():
+            return "\n".join(f"# configuration file {file}:\n" +
+                              (file.read_text("utf-8") if file.exists() else "")
+                              for file in (site_conf, game_conf, panel_conf))
 
         answers = [
             "public", "43.139.154.74",
@@ -581,6 +604,9 @@ class LinuxSetupTests(unittest.TestCase):
                 stack.enter_context(patch.object(lm, fn))
             stack.enter_context(patch.object(lm, "is_termux", return_value=False))
             stack.enter_context(patch("builtins.input", side_effect=answers))
+            stack.enter_context(self.nginx_mocks(target, game_conf))
+            stack.enter_context(patch.object(ng, "dump_config", side_effect=dump))
+            stack.enter_context(patch.object(ng, "command"))
             stack.enter_context(contextlib.redirect_stdout(output))
             lm.setup()
 

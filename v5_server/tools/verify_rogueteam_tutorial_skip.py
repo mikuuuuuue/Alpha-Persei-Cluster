@@ -4,20 +4,24 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from verify_save_generator import SaveGeneratorTests, UID as SAVE_UID
 from verify_rogueteam_login import RogueLoginTests, UID
 from save_presets import PRESET_SLOTS
+from save_generator import build_save_workspace
 import codec
 import generator
 import new_player_service as fresh
 import rogueteam_login as recovery
 
 
-class PresetTests(SaveGeneratorTests):
+SAVE_UID = 42
+
+
+class PresetTests(unittest.TestCase):
     def test_tutorial_all_presets_mark_skip_independently_of_501(self):
         for preset in PRESET_SLOTS.values():
             with self.subTest(preset=preset.key):
-                db, _ = self.build(replace(preset.options, uid=SAVE_UID, support_mail=False))
+                db, _ = build_save_workspace(replace(preset.options, uid=SAVE_UID, support_mail=False), SAVE_UID)
+                self.addCleanup(db.close)
                 self.assertEqual(db.get_system_config('save.rogueteam_tutorial'), 'skip')
                 self.assertEqual(db.get_system_config('save.owner_uid'), str(SAVE_UID))
                 self.assertEqual(fresh.gateway_new_player(db, SAVE_UID), not preset.options.skip_intro)

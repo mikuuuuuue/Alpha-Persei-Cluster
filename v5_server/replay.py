@@ -112,7 +112,7 @@ def split_frames(raw):
 
 
 def extract_u2c(frames):
-    """提取 U->C 帧序列（登录洪流重放用）：返回 [(cmd, raw), ...]，严格截止于 10201（seq<=192）。"""
+    """提取 U->C 帧序列（登录洪流重放用）：返回 [(cmd, raw), ...]，截止于首个 10201（含结束帧）。"""
     out = []
     for d, raw in frames:
         if d == "U->C":
@@ -282,7 +282,7 @@ DEFAULT_EXCLUDE_CMDS = set()
 
 
 def extract_u2c(frames, exclude_cmds=None):
-    """提取 U->C 帧序列（登录洪流重放用）：返回 [(cmd, raw), ...]，严格截止于 10201（seq<=192）。"""
+    """提取 U->C 帧序列（登录洪流重放用）：返回 [(cmd, raw), ...]，截止于首个 10201（含结束帧）。"""
     exclude_cmds = exclude_cmds or set()
     out = []
     for d, raw in frames:

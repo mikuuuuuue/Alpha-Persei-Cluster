@@ -281,6 +281,7 @@ class SaveSlotManager:
         self.registry_file.parent.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.RLock()
+        self._registry_depth = 0
         self._refresh_condition = threading.Condition()
         self._refresh_clients: Dict[str, Dict[str, Any]] = {}
         # 会话状态：session_key (通常为 client_ip) -> {"state": str, "timestamp": float}
@@ -289,46 +290,111 @@ class SaveSlotManager:
         # 当前全局/主活动数据库路径
         self._active_db_path: Optional[str] = None
 
+    @contextmanager
+    def _registry_lock(self):
+        """Serialize registry updates across processes; nested calls share one lock."""
+        with self._lock:
+            if self._registry_depth:
+                self._registry_depth += 1
+                try:
+                    yield
+                finally:
+                    self._registry_depth -= 1
+                return
+            lock_path = self.registry_file.with_suffix('.lock')
+            with lock_path.open('a+b') as stream:
+                stream.seek(0, 2)
+                if stream.tell() == 0:
+                    stream.write(b'0')
+                    stream.flush()
+                stream.seek(0)
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                self._registry_depth = 1
+                try:
+                    yield
+                finally:
+                    self._registry_depth = 0
+                    stream.seek(0)
+                    if os.name == 'nt':
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
     def _load_registry(self) -> Dict[int, str]:
         """从 slot_registry.json 读取持久化槽位映射 {slot_id: filename}"""
-        if not self.registry_file.is_file():
-            return {}
         try:
             with open(self.registry_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            reg: Dict[int, str] = {}
-            for k, v in data.items():
-                if str(k).isdigit() and isinstance(v, str):
-                    s_id = int(k)
-                    if SLOT_INDEX_SAVES_START <= s_id <= TOTAL_SLOTS:
-                        reg[s_id] = Path(v).name
-            return reg
-        except Exception:
+        except FileNotFoundError:
             return {}
+        if not isinstance(data, dict):
+            raise ValueError('槽位注册表必须是对象，旧文件已保留')
+        reg: Dict[int, str] = {}
+        seen = set()
+        for key, value in data.items():
+            if (not key.isascii() or not key.isdigit() or str(int(key)) != key
+                    or not SLOT_INDEX_SAVES_START <= int(key) <= TOTAL_SLOTS
+                    or not isinstance(value, str) or Path(value).name != value
+                    or '/' in value or '\\' in value or not value.lower().endswith('.db')
+                    or value.casefold() in seen):
+                raise ValueError('槽位注册表条目无效，旧文件已保留')
+            reg[int(key)] = value
+            seen.add(value.casefold())
+        return reg
 
     def _save_registry(self, reg: Dict[int, str]) -> None:
         """原子写入 slot_registry.json"""
+        import uuid
+        self.registry_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.registry_file.with_name(self.registry_file.name + '.' + uuid.uuid4().hex + '.tmp')
+        data = {str(k): reg[k] for k in sorted(reg.keys())}
         try:
-            self.registry_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.registry_file.with_suffix(".tmp")
-            data = {str(k): reg[k] for k in sorted(reg.keys())}
-            with open(tmp_path, "w", encoding="utf-8") as f:
+            previous_bytes = self.registry_file.read_bytes()
+        except FileNotFoundError:
+            previous_bytes = None
+        replaced = False
+        try:
+            with open(tmp_path, "x", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
             tmp_path.replace(self.registry_file)
-        except Exception:
-            pass
+            replaced = True
+            if self._load_registry() != reg:
+                raise OSError('槽位注册表写入后复核失败')
+        except Exception as error:
+            if replaced:
+                try:
+                    if previous_bytes is None:
+                        self.registry_file.unlink()
+                    else:
+                        with tmp_path.open('xb') as stream:
+                            stream.write(previous_bytes)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        tmp_path.replace(self.registry_file)
+                except Exception as restore_error:
+                    raise OSError(f'槽位注册表复核失败且旧表恢复失败: {restore_error}') from error
+            raise
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def sync_slot_registry(self) -> Dict[int, str]:
         """
         同步固定槽位注册表（Fixed Slot Registry）：
         1. 读取 slot_registry.json。
         2. 清理 registry 中文件已不存在或损坏的无效槽位（使该槽位恢复为空闲）。
-        3. 确保 Slot 3 永久绑定主库 account.db（如果存在）。
+        3. account.db 未登记且 Slot 3 空闲时，优先将其登记到 Slot 3。
         4. 扫描目录下的所有有效真实存档 (*.db)。
         5. 对于尚未登记的新存档，按空闲槽位升序（固定队列/数组机制）依次分配槽位号（Slot 3..32），并永久固化入 registry。
         6. 已分配槽位的存档位置绝对不变，不重排、不漂移，确保客户端 PlayerPrefs("RegionServerId") 稳定对齐。
         """
-        with self._lock:
+        with self._registry_lock():
             reg = self._load_registry()
 
             # 1. 清理已在磁盘上消失或损坏的无效文件
@@ -337,13 +403,11 @@ class SaveSlotManager:
                 if not p.is_file() or not is_valid_save_db(str(p)):
                     del reg[slot_id]
 
-            # 2. 确保主库 account.db 始终固定在 Slot 3 (SLOT_INDEX_SAVES_START)
+            # Keep existing valid mappings; prefer slot 3 for an unregistered master.
             acc_db = self.server_dir / "account.db"
-            if acc_db.is_file() and is_valid_save_db(str(acc_db)):
-                # 如果 account.db 之前被记录在其他槽位，移除旧位置
-                for sid, fn in list(reg.items()):
-                    if fn.lower() == "account.db":
-                        del reg[sid]
+            if (acc_db.is_file() and is_valid_save_db(str(acc_db))
+                    and 'account.db' not in {name.casefold() for name in reg.values()}
+                    and SLOT_INDEX_SAVES_START not in reg):
                 reg[SLOT_INDEX_SAVES_START] = "account.db"
 
             # 3. 扫描磁盘上所有有效存档
@@ -360,17 +424,17 @@ class SaveSlotManager:
 
             # 4. 为未登记的新存档分配空闲槽位 (固定数组机制，分配在首个未占用的 slot_id)
             occupied_slots = set(reg.keys())
-            registered_filenames = set(reg.values())
+            registered_filenames = {name.casefold() for name in reg.values()}
 
             for fname in sorted(disk_saves):
-                if fname in registered_filenames:
+                if fname.casefold() in registered_filenames:
                     continue
                 # 寻找首个空闲的槽位 (3..32)
                 for cand_slot in range(SLOT_INDEX_SAVES_START, TOTAL_SLOTS + 1):
                     if cand_slot not in occupied_slots:
                         reg[cand_slot] = fname
                         occupied_slots.add(cand_slot)
-                        registered_filenames.add(fname)
+                        registered_filenames.add(fname.casefold())
                         break
 
             # 5. 持久化并返回
@@ -379,11 +443,14 @@ class SaveSlotManager:
 
     def register_new_save(self, db_filename: str) -> Optional[int]:
         """为新生成的存档主动分配并固定一个可用槽位编号 (Slot 3..32)"""
-        with self._lock:
+        with self._registry_lock():
             fname = Path(db_filename).name
+            if (fname != db_filename or '/' in fname or '\\' in fname
+                    or not is_valid_save_db(str(self.server_dir / fname))):
+                raise ValueError('只能登记当前目录中的完整存档')
             reg = self.sync_slot_registry()
             for sid, fn in reg.items():
-                if fn == fname:
+                if fn.casefold() == fname.casefold():
                     return sid
             occupied = set(reg.keys())
             for cand_slot in range(SLOT_INDEX_SAVES_START, TOTAL_SLOTS + 1):
@@ -722,7 +789,7 @@ class SaveSlotManager:
     def delete_slot_save(self, slot_id: int, client_ip: str) -> Tuple[bool, str]:
         """仅在删除模式中备份并回收非活跃存档，完成后释放其固定槽位。"""
         key = self._session_key(client_ip)
-        with self._lock:
+        with self._registry_lock():
             if self.get_session_state(key) != STATE_DELETE_MODE:
                 return False, "删除模式未开启或已超时，请重新选择删除入口。"
             mapping = self.get_slot_mapping()
@@ -751,9 +818,16 @@ class SaveSlotManager:
 
             # Snapshot through AccountDB before removing any file. This is a
             # readonly source connection, not a gameplay database mount.
+            reg = self._load_registry()
+            updated = dict(reg)
+            updated.pop(slot_id, None)
+            registry_committed = False
             try:
                 from account_db import AccountDB
                 AccountDB.backup_save_file(target_path)
+                # Fail registry writes while the original save still exists.
+                self._save_registry(updated)
+                registry_committed = True
                 paths = [target_path] + [p for ext in ('-wal', '-shm')
                         if (p := target_path.with_name(target_path.name + ext)).exists()]
                 if os.name == 'nt':
@@ -769,12 +843,12 @@ class SaveSlotManager:
                         sidecar = source.name[len(target_path.name):]
                         shutil.move(str(source), str(trash_dest) + sidecar)
             except Exception as e:
+                if registry_committed:
+                    try:
+                        self._save_registry(reg)
+                    except Exception as rollback_error:
+                        return False, f'删除失败，槽位登记恢复失败；请检查备份与存档列表: {e}; {rollback_error}'
                 return False, f"❌ 删除存档失败: {e}"
-
-            # 从注册表中释放该槽位，空出该位置给后续新存档（其他槽位绝对保持不动）
-            reg = self._load_registry()
-            reg.pop(slot_id, None)
-            self._save_registry(reg)
 
             # 成功删除后，自动复位回正常模式
             self.reset_session(key)

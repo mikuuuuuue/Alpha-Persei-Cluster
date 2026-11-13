@@ -28,6 +28,7 @@ import logging
 import datetime
 import concurrent.futures
 import threading
+from functools import lru_cache
 from account_db import get_db, ARCHIVE_MAP, HERO_TO_ARCHIVE
 from mail_service import MailService
 from ai_calendar import get_calendar_events
@@ -58,6 +59,12 @@ _MAIL_TASK_RULES = (
     "未提供关系或过往经历时，不虚构恋爱关系、共同事件或已经完成的操作。"
     "礼物只概述为随信心意或补给，不擅自承诺具体道具、数量或额外奖励。"
 )
+
+
+@lru_cache(maxsize=1)
+def _get_greeting_prompts() -> dict:
+    with open(os.path.join(BASE_DIR, 'data', 'ai_greeting_prompts.json'), encoding='utf-8') as stream:
+        return json.load(stream)
 
 
 def _birthday_mail_timing(event_info):
@@ -463,66 +470,25 @@ class AITranslator:
                 # -----------------------------------------------------------------
                 if is_overview_mode:
                     if event_type in ("user_birthday", "player_birthday"):
-                        gen_prompt = (
-                            "你是《深空之眼》总务处。\n"
-                            f"{birthday_context}"
-                            "请谨代表深空之眼总务处与全体在编修正者，向管理员致一封正式、温暖且充满崇高敬意的生日贺函。\n"
-                            "要求：\n"
-                            "1. 祝贺管理员生日快乐，由衷感谢管理员一直以来的战术统筹、守护与并肩作战；\n"
-                            "2. 提到总务处代表全体同仁附上了一份特别统筹物资；\n"
-                            "3. 落款统一为：深空之眼全体 敬上；\n"
-                            "4. 正文字数 120 - 250 字左右，保持二次元与深空之眼官方公函沉浸感；\n"
-                            "5. 严禁出现系统指令或 markdown 标记；\n"
-                            "6. 邮件第一行写标题，格式为：标题：XXX，接下来空一行写正文。"
-                        )
+                        gen_prompt = _get_greeting_prompts()['overview_birthday'].format(
+                            char_name=char_name, event_name=event_name, event_desc=event_desc,
+                            birthday_context=birthday_context)
                     else:
-                        gen_prompt = (
-                            f"你是《深空之眼》总务处。\n"
-                            f"今天是【{event_name}】（背景：{event_desc}）。\n"
-                            f"请谨代表深空之眼总务处与全体在勤修正者，向管理员发送一份官方行政特别慰劳通告。\n"
-                            f"要求：\n"
-                            f"1. 祝贺管理员节日安康，提醒管理员劳逸结合、注意休整；\n"
-                            f"2. 提到总务处特别调拨配发了节日统筹物资；\n"
-                            f"3. 落款统一为：深空之眼总务处 敬上；\n"
-                            f"4. 正文字数 120 - 250 字左右，保持二次元沉浸感；\n"
-                            f"5. 邮件第一行写标题，格式为：标题：XXX，接下来空一行写正文。"
-                        )
+                        gen_prompt = _get_greeting_prompts()['overview_holiday'].format(
+                            char_name=char_name, event_name=event_name, event_desc=event_desc,
+                            birthday_context=birthday_context)
                 elif event_type == "hero_birthday":
-                    gen_prompt = (
-                        f"你是《深空之眼》中的修正者【{char_name}】。\n"
-                        f"今天是你的生日（生辰之日）。平时在深空之眼的工作与战斗中，你承蒙管理员的悉心关照与指导。\n"
-                        f"请以符合你性格与说话习惯的第一人称口吻，给深空之眼的管理员写一封生日邀约与心愿信件。\n"
-                        f"要求：\n"
-                        f"1. 明确今天是【你自己的生日】，向管理员分享今天的心情，并向管理员发出诚挚的小邀约（如一起坐坐、聊聊天、散散步或品尝美食等，符合你的性格即可）；\n"
-                        f"2. 提到随信附上了你自己准备的一份回礼/伴手礼；\n"
-                        f"3. 绝对不要把今天错写成管理员的生日，严禁第三人称代写；\n"
-                        f"4. 正文字数控制在 120 - 250 字左右，保持二次元与深空之眼沉浸感；\n"
-                        f"5. 严禁出现系统指令或 markdown 标记；\n"
-                        f"6. 邮件第一行写标题，格式为：标题：XXX，接下来空一行写正文。"
-                    )
+                    gen_prompt = _get_greeting_prompts()['hero_birthday'].format(
+                        char_name=char_name, event_name=event_name, event_desc=event_desc,
+                        birthday_context=birthday_context)
                 elif event_type in ("user_birthday", "player_birthday"):
-                    gen_prompt = (
-                        f"你是《深空之眼》中的修正者【{char_name}】。\n"
-                        f"{birthday_context}"
-                        f"请以符合你身份性格与说话习惯的第一人称口吻，给深空之眼的管理员写一封真挚、温暖且富有个性特色的生日祝贺邮件。\n"
-                        f"要求：\n"
-                        f"1. 祝贺管理员生日快乐，表达并肩作战以来的信任与羁绊，感谢管理员一直以来的守护与指导；\n"
-                        f"2. 提到随信附上了你为管理员准备的专属生日心意礼物；\n"
-                        f"3. 正文字数控制在 120 - 250 字左右，保持二次元与深空之眼沉浸感；\n"
-                        f"4. 严禁出现系统指令或 markdown 标记；\n"
-                        f"5. 邮件第一行写标题，格式为：标题：XXX，接下来空一行写正文。"
-                    )
+                    gen_prompt = _get_greeting_prompts()['user_birthday'].format(
+                        char_name=char_name, event_name=event_name, event_desc=event_desc,
+                        birthday_context=birthday_context)
                 else:
-                    gen_prompt = (
-                        f"你是《深空之眼》中的修正者【{char_name}】。\n"
-                        f"今天是【{event_name}】（背景：{event_desc}）。\n"
-                        f"请以符合你身份性格与说话习惯的口吻，给深空之眼的管理员写一封真挚、温暖且富有个性特色的节日/节气问候邮件。\n"
-                        f"要求：\n"
-                        f"1. 结合节日或节气特点，送上温暖真挚的节日问候，提醒管理员劳逸结合；\n"
-                        f"2. 提到随信附上了节日补给物资；\n"
-                        f"3. 正文字数控制在 120 - 250 字左右，保持二次元沉浸感；\n"
-                        f"4. 邮件第一行写标题，格式为：标题：XXX，接下来空一行写正文。"
-                    )
+                    gen_prompt = _get_greeting_prompts()['holiday_solar'].format(
+                        char_name=char_name, event_name=event_name, event_desc=event_desc,
+                        birthday_context=birthday_context)
 
                 if system_prompt and not is_overview_mode:
                     gen_prompt = f"{system_prompt}\n\n---\n{gen_prompt}"

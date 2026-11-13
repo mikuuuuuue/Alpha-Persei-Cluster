@@ -110,6 +110,12 @@ class AIContextBuilder:
         if isinstance(header, str) and header.strip():
             lines.append(header.strip())
 
+        for key in ('role_guard', 'term_glossary_head'):
+            text = fragments.get(key)
+            if isinstance(text, str) and text.strip():
+                lines.append(text.strip())
+                applied.append(key)
+
         user_row = self._query_one(db, "SELECT nick FROM users WHERE uid=?", (int(uid),))
         nickname = _safe_display_text(user_row.get("nick"), "管理员")
         player_template = fragments.get("player")
@@ -162,6 +168,11 @@ class AIContextBuilder:
             if isinstance(birthday_fragment, str) and birthday_fragment.strip():
                 lines.append(birthday_fragment.strip())
                 applied.append("birthday")
+
+        output_style = fragments.get('output_style')
+        if isinstance(output_style, str) and output_style.strip():
+            lines.append(output_style.strip())
+            applied.append('output_style')
 
         return {
             "text": "\n".join(lines).strip(),

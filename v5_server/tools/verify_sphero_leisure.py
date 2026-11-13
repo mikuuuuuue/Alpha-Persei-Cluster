@@ -30,6 +30,9 @@ class LeisureTests(ScheduleTests):
         for iid in items:
             kind=1 if iid<100 else ITEM_TYPES[iid][0]
             self.db.execute('INSERT OR REPLACE INTO item_catalog(id,type,category) VALUES(?,?,?)',(iid,kind,'currency' if kind==1 else 'material'))
+        from profile_rules import skin_portrait_config
+        portrait = skin_portrait_config()['1284']['portrait_id']
+        self.db.execute('INSERT INTO item_catalog(id,type) VALUES(?,?)', (portrait, ITEM_TYPES[portrait][0]))
         self.db.execute('UPDATE users SET level=70 WHERE uid=?',(UID,));self.conn.resource_version='229'
     def state(self):
         return {t:self.db.query('SELECT * FROM '+t+' ORDER BY rowid') for t in ('ops_common','users','currency','material','task','claim_ledger','history_cmd','hero','servant','sp_hero_puzzle_progress','store_purchase')}

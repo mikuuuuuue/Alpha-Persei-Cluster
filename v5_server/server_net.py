@@ -250,7 +250,7 @@ def run_while_save_offline(path, uid, action):
                 mounted = getattr(getattr(connection, 'db', None), 'path', None)
                 if (mounted and os.path.normcase(os.path.realpath(mounted)) == expected
                         or not mounted and owner == uid):
-                    raise ValueError('请先退出这个存档的游戏账号，再重置本期')
+                    raise ValueError('请先退出这个存档的游戏账号，再执行此操作')
         return action()
 
 

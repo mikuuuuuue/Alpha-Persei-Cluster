@@ -27,6 +27,8 @@ import { ItemSlot } from '../components/ItemSlot'
 import { useServer } from '../lib/serverContext'
 import {
   fetchInventoryItems,
+  addEquipSuit,
+  clearInventory,
   resolveAssetUrl,
   isTrialSkinFilm,
   isDisplayOnlyItem,
@@ -212,13 +214,22 @@ function HeaderCell({ children, align }: { children: React.ReactNode; align?: 'e
 }
 
 export default function InventoryPanel() {
-  const { activeUid } = useServer()
+  const { activeUid, selectedSave } = useServer()
 
   // 1. 核心数据状态（带离线 1,757 项全图鉴与 879 项真实持仓离线兜底，永不为0）
   const [catalog, setCatalog] = useState<CatalogItem[]>(defaultCatalog as CatalogItem[])
   const [ownedMap, setOwnedMap] = useState<Record<number, number>>(INVENTORY_OFFLINE_SNAPSHOT)
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [inventoryLoaded, setInventoryLoaded] = useState(false)
+  const [isWriting, setIsWriting] = useState(false)
+  const [writeMessage, setWriteMessage] = useState('')
+  const [suitId, setSuitId] = useState('1')
+  const [suitStar, setSuitStar] = useState('3')
+  const [clearTarget, setClearTarget] = useState<{ uid: number; save: string } | null>(null)
+  const inventoryRequest = useRef(0)
+  const currentIdentity = useRef('')
+  currentIdentity.current = `${selectedSave}:${activeUid}`
 
   // 2. 筛选与视图状态
   const [view, setView] = useState<ViewMode>('grid')
@@ -259,27 +270,80 @@ export default function InventoryPanel() {
 
   // 异步拉取当前账号在测试库的真实持仓
   const loadInventory = async (isManual = false) => {
+    const requestId = ++inventoryRequest.current
+    const identity = `${selectedSave}:${activeUid}`
     if (isManual) setIsRefreshing(true)
     try {
       const res = await fetchInventoryItems(activeUid)
+      if (identity !== currentIdentity.current || requestId !== inventoryRequest.current) return false
       if (res.code === 0 && res.data && Array.isArray(res.data.items)) {
         const map: Record<number, number> = {}
         for (const it of res.data.items) {
           map[it.id] = (map[it.id] || 0) + (it.num || 1)
         }
         setOwnedMap(map)
+        setInventoryLoaded(true)
+      } else {
+        setInventoryLoaded(false)
+        throw new Error(res.msg || '无法读取库存')
       }
     } catch (err) {
+      if (identity !== currentIdentity.current || requestId !== inventoryRequest.current) return false
+      setInventoryLoaded(false)
+      setWriteMessage(err instanceof Error ? err.message : '无法读取库存，请刷新')
       console.warn('获取玩家背包持仓失败:', err)
+      return false
     } finally {
-      setIsLoading(false)
-      if (isManual) setIsRefreshing(false)
+      if (identity === currentIdentity.current && requestId === inventoryRequest.current) {
+        setIsLoading(false)
+        setIsRefreshing(false)
+      }
     }
+    return true
   }
 
   useEffect(() => {
+    setInventoryLoaded(false)
+    setIsRefreshing(false)
+    setClearTarget(null)
+    setWriteMessage('')
     loadInventory()
-  }, [activeUid])
+  }, [activeUid, selectedSave])
+
+  const handleGrantSuit = async () => {
+    const identity = currentIdentity.current
+    setIsWriting(true)
+    try {
+      const res = await addEquipSuit(Number(suitId), Number(suitStar), activeUid)
+      if (identity !== currentIdentity.current) return
+      if (res.code !== 0) throw new Error(res.msg)
+      if (await loadInventory()) setWriteMessage('已发放 6 件刻印，库存已刷新')
+    } catch (err) {
+      if (identity === currentIdentity.current) setWriteMessage(err instanceof Error ? err.message : '套装发放失败')
+    } finally {
+      setIsWriting(false)
+    }
+  }
+
+  const handleClearMaterial = async () => {
+    if (!clearTarget || clearTarget.uid !== activeUid || clearTarget.save !== selectedSave) {
+      setClearTarget(null)
+      return
+    }
+    const identity = currentIdentity.current
+    setIsWriting(true)
+    try {
+      const res = await clearInventory('material', activeUid)
+      if (identity !== currentIdentity.current) return
+      if (res.code !== 0) throw new Error(res.msg)
+      setClearTarget(null)
+      if (await loadInventory()) setWriteMessage(`已清理 ${res.data.deleted.material} 条普通材料，库存已刷新`)
+    } catch (err) {
+      if (identity === currentIdentity.current) setWriteMessage(err instanceof Error ? err.message : '普通材料清理失败')
+    } finally {
+      setIsWriting(false)
+    }
+  }
 
   // 将 catalog 与 ownedMap O(1) 融合
   const mergedItems = useMemo<InventoryDisplayItem[]>(() => {
@@ -677,6 +741,49 @@ export default function InventoryPanel() {
           </div>
         }
       />
+
+      <Card className="p-5 shadow-surface">
+        <Card.Content className="space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="space-y-1 text-xs">
+              <span className="block text-muted">刻印套装 ID</span>
+              <input aria-label="刻印套装 ID" type="number" min={1} max={82} value={suitId}
+                onChange={(event) => setSuitId(event.target.value)}
+                className="w-28 rounded-md border border-separator bg-background px-3 py-2" />
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="block text-muted">刻印星级</span>
+              <select aria-label="刻印星级" value={suitStar} onChange={(event) => setSuitStar(event.target.value)}
+                className="rounded-md border border-separator bg-background px-3 py-2">
+                {[3, 4, 5].map((star) => <option key={star} value={star}>{star} 星</option>)}
+              </select>
+            </label>
+            <Button size="sm" onPress={handleGrantSuit} isDisabled={isWriting || !inventoryLoaded}>发放 1～6 槽套装</Button>
+            <Button size="sm" variant="secondary" onPress={() => setClearTarget({ uid: activeUid, save: selectedSave })}
+              isDisabled={isWriting || !inventoryLoaded}>清理普通材料</Button>
+          </div>
+          <p className="text-xs text-muted">操作当前所选存档。请先退出该存档的游戏账号。</p>
+          {writeMessage && <p role="status" className="text-sm">{writeMessage}</p>}
+        </Card.Content>
+      </Card>
+
+      <Modal.Root isOpen={clearTarget !== null} onOpenChange={(open) => { if (!open) setClearTarget(null) }}>
+        <Modal.Backdrop className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <Modal.Container className="w-full max-w-lg">
+            <Modal.Dialog className="space-y-4 rounded-2xl border border-separator bg-surface p-5 shadow-2xl">
+              <Modal.Header><Modal.Heading>确认清理普通材料</Modal.Heading></Modal.Header>
+              <Modal.Body className="space-y-2 text-sm">
+                <p>存档：{clearTarget?.save || '当前挂载存档'}，UID：{clearTarget?.uid}</p>
+                <p>删除已核实用途的养成材料。保留回放纪念品、换装券、礼包、表情和用途未知的物品。</p>
+              </Modal.Body>
+              <Modal.Footer className="flex justify-end gap-2">
+                <Button variant="secondary" onPress={() => setClearTarget(null)} isDisabled={isWriting}>取消</Button>
+                <Button onPress={handleClearMaterial} isDisabled={isWriting}>确认清理</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
 
       {/* 2. 参照 Warehouse 架构的数据规模与搜索管理卡片 */}
       <Card className="p-5 shadow-surface">
