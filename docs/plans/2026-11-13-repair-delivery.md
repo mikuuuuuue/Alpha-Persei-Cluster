@@ -4,7 +4,7 @@
 
 已交付测试恢复、GM 写入、启动／周期检查、导入首版安全路径、玩法取证和 AI 离线稿件。A1 续作已完成证书部署、Windows 信任和本机 HTTPS 验证。整份计划尚未收官，游戏客户端、真实抓包缺证和 AI 内容审校仍有门禁。
 
-2026-11-14 B0 核对结束：本机 `307/332/v5.3.6` 的版本／资源适配、联网状态下的主界面、角色／背包和退出重登均有证据；除用户后置的 `B0-S01` 外，未发现其他未完成的必需项。断网冷启动仍被 B 站渠道登录阻断，因此整票保持 **partial**，不能写成全部离线通过。临时服务已停、hosts 已恢复；本轮停止，等待用户确认后才恢复 B1。
+B0 历史收尾（已本地提交 ce761b7）：本机 `307/332/v5.3.6` 的版本／资源适配、联网状态下的主界面、角色／背包和退出重登均有证据；除用户后置的 `B0-S01` 外，未发现其他未完成的必需项。断网冷启动仍被 B 站渠道登录阻断，因此整票保持 **partial**，不能写成全部离线通过。临时服务已停、hosts 已恢复；本轮停止，等待用户确认后才恢复 B1。
 
 修复起点为 `4bec98f16ba8dc95f4c01d104bcdc5b88d77ed10`。前轮全部未提交内容已保存为本地提交 `240ac38`，包含原有 M3／M4 计划、`_review/` 和参数文件。A 阶段证书、台账及[交接提示词](2026-11-13-repair-handoff.md)一并保存为收官本地提交；仅在 A1 部署本机证书与 Windows 信任，未推送。收官提交可按交接文件的 Git 历史定位。
 
@@ -15,7 +15,7 @@
 | A1 | done（证书级验收） | 进度台账 A1 续作：文件检查退出 0，两处 Windows 根信任及链验证通过；实际 HTTPS 200、根／叶指纹核对及错误主机名拒绝通过。严格 CRL 检查限制单列，未验游戏客户端。 |
 | A2 | done（消费者范围） | 本轮 10 个必需脚本均退出 0，156 次运行含继承重复；Linux 41 全过。保留 1 项历史归档 skip，原生缺证及资源关闭告警另列，下一项待确认。 |
 | B0 | partial（仅离线认证 B0-S01 后置） | 332 源码／资料／完整资源与 4 个专项通过；实际联网主界面、角色／背包和重登通过。其余必需项无遗漏，临时环境已恢复；全离线未通过。 |
-| B1 | partial | 文件库冷重开及奖励 21 项通过，周期 32 项含 2 个 before 错误。大 UID 隔离夹具已越过初始化；82 个已请求资源本机缺失，12 项数值走查未执行。hosts、服务和端口均已清理；B1-C01／B1-R01 filed。 |
+| B1 | partial（本地快照保存，N-2 与数值缺证保留） | N-1 parser 最小修复及真实场景推进复验通过；多维 35／Hodur 20／战棋 1 均 exit 0。整局任务／成就和其他逐项数值仍缺证；服务已停、hosts 已恢复。 |
 | B2 | not done | 三关清单已登记；无当前同场日志或转储，未猜根因或规避。 |
 | B3 | partial | 三预设内存构建和前驱／分支约束通过；游戏客户端未验。 |
 | C1～C3 | done（源码、API、浏览器） | GM 10 项和真实页面回读通过；游戏重登及回放／兑换／表情体验未验。 |
@@ -29,7 +29,7 @@
 
 ## 实际验证命令
 
-下列命令均从仓库根目录运行。日志在 `selftest_tmp/priority-repair/`。继承测试有重叠，不把各行相加作为独立覆盖数。
+未单列工作目录的命令从仓库根目录运行。日志在 `selftest_tmp/priority-repair/`。继承测试有重叠，不把各行相加作为独立覆盖数。
 
 A2 本轮重跑了下表中的共享、计时、结算边界、角色响应、入场、溢出、教学、提交恢复、Issue #8 与 Linux 共 10 个命令，结果均与表中一致。新日志在 `a2-recheck-20261113-180246/`，逐项命令与退出码见 `results.json`；断言与数据保护审计见同目录 `summary.json` 和进度台账 A2 复验。
 
@@ -51,6 +51,9 @@ A2 本轮重跑了下表中的共享、计时、结算边界、角色响应、�
 | `python -B -X utf8 v5_server/tools/verify_grant_failure_guard.py` | exit 0，16 项，以根日志为准。 |
 | `python -B -X utf8 v5_server/tools/verify_boss_reward_guard.py` | B1 续作 exit 0，21 项，新增 1 项文件库冷重开；原记录为 20 项。 |
 | `python -B -X utf8 v5_server/tools/verify_boss_cycle_clock.py` | B1 续作 exit 1；32 项，2 个 before 归档缺失 error，未跳过；原记录为 31 项。 |
+| `python -B -X utf8 tools/verify_polyhedron_lifecycle.py`（cwd：`v5_server`） | N-1 修复后 exit 0，35 项；含真实 PC 332 战报解析、结算和下一场景集成用例。 |
+| `python -B -X utf8 tools/verify_hodur_challenge.py`（cwd：`v5_server`） | N-1 修复后 exit 0，20 项；保留共用解析器的坏包与血量边界。 |
+| `python -B -X utf8 -m unittest verify_warchess_state.WarChessTests.test_battle_reentry_replaces_prior_attempt_and_health_report_rejects_bad_team`（cwd：`v5_server/tools`） | exit 0，1 项；保留共用解析器的战棋编队边界。 |
 | `python -B -X utf8 v5_server/tools/verify_hero_unlock_delta.py` | exit 1；26 项，1 个原生 Lua／parser 对照失败。 |
 | `python -B -X utf8 tests/m4_gm_api_check.py` | exit 0，10 项，实际 Flask／临时 SQLite。 |
 | `python -B -X utf8 tests/m4_ai_prompt_check.py` | exit 0，4 项，实际内存邮件和 provider 故障 fallback。 |
@@ -233,3 +236,21 @@ B0 11 月 14 日验收收尾：用户确认昵称 `B0版本适配`、UID `261113
 服务 PID `9484` 已不存在，exec `66583` 经 Ctrl+C 退出 `1`，不冒充优雅退出通过。`hosts-transaction.ps1 -Action Apply`／`Restore` 均退出 `0`；恢复后 hosts 与原件逐字节一致，长度 `65492`、SHA256 `5C1717F046D7DB88ACC5C2626BF41DB40C4866C9BD24AB9B25DE1E2CC6027A54`。即时解析回执保留，独立 DNS 两关键域随后均为 `203.107.63.115`。35 个 TCP 端口及 UDP `6105` 可独占绑定，9 个保护文件及客户端主清单哈希未变。
 
 根 Codex 与 `gpt-6-luna/high` 已分别完成功能、共享路径／权限边界及单独复杂度复核，删除清单：无。B1-C01 小 UID 生产兼容仍 filed；B0-P01 为未验证性能观察；渠道请求 10／响应 9 已有本轮正常运行证据，但没有据此猜改字段。只读 SDK 导出字符串线索不证明离线入口可用，未调用。
+
+## B1：11 月 14 日本轮收尾
+
+B0 已由用户授权保存为本地提交 `ce761b770b2620ffd4b53187c2f234504fcf8ada`。用户现已授权本地提交全部 12 个变更文件：4 个 Python 文件和 8 份文档，包括原冷重开测试；本轮提交可用 `git log -1 --format=%H -- v5_server/battle_server.py` 定位。未推送。独立运行副本位于 `selftest_tmp/priority-repair/b1-client-20261114/runtime/v5_server`，唯一合成主人 UID `261113200139`／昵称 `B1隔离验收`；CDN off、capture false，账号库、配置及聊天写入均隔离。冻结资源缓存有意复用 B0 目录。
+
+M2 第 1 项三阶段快照证明精准探测凭证 20→10、10 条抽卡记录、新角色 1056、重复角色转换 10 碎片、8 个钥从及 110 辉芒，重登保持。用户其余整批回报正常，但未逐项留下数值与截图；邮件 1020 的 attach_flag=2，礼物 30012 仍为 5，后者缺赠礼消耗证据。各项状态见客户端验收表，不写 M2 全过。
+
+N-1 已修复：真实 PC 332 战报含英雄 1084 和两个精确空队伍槽，旧解析器把空槽当非法角色，导致整份血量报告无效。仅扩展 `battle_server.py:245` 现有解析器跳过精确空槽，保留总槽数最多 32、全空拒绝、非空 HP／wire／重复字段拒绝及业务编队名单校验。原始 74B battle-info 的 SHA256 为 `8643f2f5ef1a72f65fbef67241d17fdfa24c4d2b95ccb1a0a3bcd098765df0b2`；它测得 HP 8502／10000。
+
+新增 1 个现有类内集成用例；改前 2 项定向检查 exit 1，新增例结算失败，修后 3 项 exit 0。多维 35／Hodur 20／战棋定向 1 均 exit 0，命令见上表；定向与继承有重复，不相加为独立覆盖。A2-W01 的既有资源关闭告警保留。新增生产模块／类／顶层函数／参数／配置键均为 0，临时原始报文诊断块已删除。
+
+N-1 实机复验通过：用户回报“正常了”，同一 UID 的 `server-fixed.log:219`、`:225`、`:230` 记录 54032→18012→18014；前／后快照场景 3035111→3035401、battle_count 0→1、hp_report_complete false→true，当前 HP 9250／10000，两份 quick_check 均为 ok。证据为 `n1-client-fixed-acceptance.json`、`snapshots/11-before-fixed-client.db` 与 `snapshots/n1-after-fixed-client.db`。本场实测与原始报文夹具来自不同战斗；完整一局及任务／成就未验。
+
+N-2 已登记、未修复：新档登录三次下发空 SC42001，本地联合特勤视图固定读取三个组，与用户黑屏相符，但没有当前客户端 Lua 栈。42002 无真实 handler，42004 仅空 42005 模板；旧 Lua／master 分组不证明 332 新档契约，不能复制其他 owner 的刷新计数或猜组。补证前不扩完整刷新玩法。
+
+本轮恢复已回读：游戏及服务 PID 24768 均已退出，exec 35738 经 Ctrl+C 退出 1；`hosts-transaction.ps1 -Action Restore` 退出 0，hosts 原始 65492 字节及 SHA256 完全一致。35 TCP＋UDP 6105 可独占绑定，9 个保护文件及客户端主清单未变；两关键域独立 DNS 查询为 203.107.63.115。最新证据为同目录 `cleanup-readback.json`、`hosts-restore-receipt.json`、`dns-after-restore.json`。
+
+根 Codex 与 `gpt-6-luna/high` 完成功能、共享执行路径和权限边界复核。共用解析器仅一处，Polyhedron／Hodur／Warchess 的名单校验保留；同类已扫，无其他重复解析器。单独复杂度复核删除了临时原始报文日志块及交付记录中过期的活动状态，剩余删除清单：无。B1 保持 partial，本轮停止；未启动 B2。

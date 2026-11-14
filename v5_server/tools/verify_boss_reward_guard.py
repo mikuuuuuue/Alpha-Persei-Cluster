@@ -2,15 +2,20 @@
 import ast
 from collections import Counter
 import copy
+from contextlib import closing
 import json
 from pathlib import Path
+import sqlite3
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from verify_report_small_fixes import MemoryTests, UID, NOW
 from verify_grant_failure_guard import GrantFailureTests
+import account_db
 import codec
+import core
 import generator
 import inventory_service as inventory
 import operations
@@ -94,6 +99,32 @@ class BossRewardTests(MemoryTests):
     def test_normal_duplicate_stage_records_do_not_add_extra_stars(self):
         self.select(4);self.stars(2,duplicate=True)
         self.reject(1,3,2005)
+
+    def test_claim_history_and_balances_survive_database_reopen(self):
+        self.select(101);self.score(7000)
+        self.assert_success(*self.claim(2,7000),self.expected(2,[7000]))
+        before=self.state()
+        snapshot=codec.decode(generator.gen_payload(45101,uid=UID,db=self.db),'sc_45101')
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'boss-reward.db'
+            with closing(sqlite3.connect(path)) as target:
+                self.db._conn().backup(target)
+            self.db.close()
+            with closing(account_db.AccountDB.open_existing(path)) as cold:
+                self.db=cold
+                self.core=core.Core(db=cold,generator=generator,codec_encode=codec.encode,
+                                    codec_decode=codec.decode,log=lambda *a,**k:None)
+                self.conn=core.Connection(uid=UID,db=cold,generator=generator,
+                                          codec_encode=codec.encode,codec_decode=codec.decode,
+                                          log=lambda *a,**k:None)
+                with patch.object(account_db,'_db',cold):
+                    self.assertEqual(self.state(),before)
+                    self.assertEqual(codec.decode(generator.gen_payload(45101,uid=UID,db=cold),
+                                                  'sc_45101'),snapshot)
+                    self.reject(2,7000,2013)
+                    self.assert_success(*self.claim(3),{})
+                    self.assertEqual(self.state(),before)
+                    self.assertEqual(cold.query('PRAGMA integrity_check'),[{'integrity_check':'ok'}])
 
     def test_canonical_and_legacy_advance_mode_choose_own_tiers(self):
         for mode,first in ((101,7000),(102,10000)):
