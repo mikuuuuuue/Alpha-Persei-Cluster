@@ -2,8 +2,9 @@
   "version": 2,
   "selections": {
     "pc": {
-      "selected_id": "auto",
-      "fallback_id": "native-pc-a66c600ea8c7"
+      "selected_id": "native-pc-6a610d4d8550",
+      "fallback_id": "native-pc-a66c600ea8c7",
+      "app_version": "307"
     },
     "android": {
       "selected_id": "auto",

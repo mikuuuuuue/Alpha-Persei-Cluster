@@ -230,6 +230,12 @@ class ManifestChecks(unittest.TestCase):
         client = app.test_client()
         for platform in manager.PLATFORMS:
             row = self.generate(platform); self.apply(row)
+            fixed = client.get('/mix-sdk-api/pass/game/updateversion/getLatest',query_string={
+                'platformType':platform,'channelId':manager.CHANNELS[platform],'appVersion':'308'}).get_json()
+            fixed_entry = next(x for x in fixed['data'] if x['type']=='noInstall')
+            self.assertEqual(fixed_entry['matchedAppVersion'],'307' if platform=='pc' else '308')
+            manager.save_platform(dict(platform=platform,selected_id=row['id'],
+                fallback_id=self.native(platform,'321')['id'],app_version='auto'))
             for method in ('get','post'):
                 values = dict(platformType=platform, channelId=manager.CHANNELS[platform], appVersion='308')
                 kwargs = {'query_string':values} if method == 'get' else {'json':values}
