@@ -1,8 +1,18 @@
 # 修复计划交接提示词
 
-2026-11-14：B1 本轮修复、测试和验收记录已纳入本地快照。N-1 多维首战后推进失败已修复，并通过一次真实客户端推进复验。B1 整票仍为 partial：联合特勤 N-2 缺 332 初始化契约；完整多维通关、任务／成就和其他逐项数值仍缺证。服务已停，hosts 已恢复。
+2026-11-14：用户确认礼物“验证通过”。实际领取 5 本、连续送出 4 本，剩 1 本，档案经验 0→20；文件冷读保持。赠礼后第二次登录的独立证据仍缺。服务已停、hosts 原字节恢复；B1 仍为 partial，其余正常项目不重做。
 
-先核对仓库与本机证据，再在已确认的 B1 范围内接续。下一张任务票仍须用户明确确认。本次本地提交和交接没有启动新实施或测试。
+此前取证已从可信 332 包提取消费代码、候选组配置及协议定义，共 9 个文件；新档选组与计数规则仍缺。取证结束不等于整张 B1 停止；当前状态如下。
+
+**当前隔离服务和临时 hosts 已清理。** PID18388 已停止，exec35371 exit 1；Ctrl+C 未生效后只精确停止本 PID，不算优雅退出通过。hosts Restore exit 0，与原始 65,492 字节相同，35 TCP＋UDP6105 可独占绑定；源 9 个保护文件、运行副本 8 个证书／私钥和客户端主清单未变。独立 DNS 当前返回 198.18.0.4／198.18.0.5，未沿用历史解析值。最新 `running-service.json` 已为 active=false。4 份文档改动保留，未提交、未推送。
+
+最近会话只用已有 CLI `--gw-port 18102` 避开外部占用；旧 launch_config 已恢复原字节。实际 HTTPS／SDK 曾回读 UID 261113200139／B1隔离验收／slot 3端口18104／332／CDN off／capture false。隔离叶证书自动更新，8 个旧证书／私钥备份保留，原根和 Windows 信任未改。最近证据目录为 `b1-client-20261114/resume-20261114T070645Z/`，含快照、原始日志、清理回执和 `gift-diagnosis/diagnosis.json`。
+
+礼物收尾：1023 已领，用户实际向 1045「赤音／亚莉莎」连续赠送 4 本 50001，均走 14100，一本 +5，档案经验 0→20、gift_list 记 4、库存剩 1。30012×10 和所有角色交心值未变。用户确认通过，显示／领取／赠礼及入库已验；停服后文件冷读保持。日志只有赠礼前一次登录，赠礼后重登独立证据 filed，不把冷读替代重登，也不把本项通过写成 M2 全过。
+
+本轮证据为 `b1-client-20261114/gift-recheck-20261114T111341Z/`，含准备及验收／停服快照、`after-client-acceptance.json`、332 赠礼页源码、完整命令、复核和清理回执。`server.log:210` 是 30004 领取；:229／235／238／241 是赠礼，:253 是退出。原始 SDK 日志含凭据，不原样输出。根 Codex／Luna 已复核，复杂度删除清单无；本轮生产代码及测试未变。B1 剩余仍是 N-2 规则、完整多维和其他逐项数值缺证。
+
+先核对仓库与本机证据，在已确认的 B1 范围内继续。B1 收尾后才等待下一票确认，不自动进入 B2。
 
 ## 快速接手
 
@@ -31,7 +41,7 @@ git log -1 --format=%H -- v5_server/battle_server.py
 
 1. 当前只接续 B1。每次执行一张已确认任务票，结束后报告结果，等待下一票确认；不自动进入 B2。
 2. 使用子代理驱动执行，默认 `gpt-6-luna`、`high`。根代理串行修改共享文件。共享执行路径和权限边界由不同模型复核。
-3. 读取可用的 5 小时和周额度。任一剩余不超过 10% 时停止，清理临时环境并保存交接。无法读取时如实说明，不自动重置。提交前最近回读为 58%／57%，接续时重新读取。
+3. 读取可用的 5 小时和周额度。任一剩余不超过 10% 时停止，清理临时环境并保存交接。无法读取时如实说明，不自动重置。用户回报通过后的回读为 92%／48%，未使用重置；接续时重新读取。
 4. 先用 `rg` 检索已有实现，再复用或扩展。遵守总计划、仓库规范和阿里开发规范，不增加无关功能、参数、配置键或抽象。
 5. 非简单改动先列新增／删除产物、调用方、净数量和明确不做项。只写证明必需行为与可观察结果的测试，执行必需检查。
 6. 测试使用内存库、临时库或临时配置。保留真实存档、证书私钥、备份和原始证据。禁止擅自推送、部署、修改真实账号或再次变更系统信任。
@@ -75,10 +85,14 @@ git log -1 --format=%H -- v5_server/battle_server.py
 
 ## B1 剩余工作
 
-- **N-2 联合特勤：filed，未修复。** 这是 chapter 203／stage_type 8 的普通刻印材料入口，不能仅凭名称归为多人封锁。三次登录证实新档 SC42001 下发空列表；本地原生视图固定读取 3 个组，与黑屏相符，但没有当前客户端 Lua 栈。42002 无真实 handler，42004 仅空 42005 模板。旧 master 的 `[9,27,17]` 和其他 owner 刷新计数不证明 332 新档规则。缺权威初始化／分组契约时先取证，不猜默认组，也不扩完整刷新玩法或解除 R18 封锁。入口线索在 `v5_server/login.py:300`、`schema_default.py:88`；本地 Lua 位于 `C:\Users\<user>\Desktop\解包\Lua源码库\Lua源码\game\`，未证明属于 332。
-- **完整多维与逐项数值仍缺证。** 用户整批报告“其余正常”，不重做已过项目，不把汇总当作每项三阶段数值／截图。M2 第 1 项已证票 20→10、10 条抽卡记录、新角色 1056、重复转 10 碎片、8 个钥从、110 辉芒，重登保持。第 8 项邮件 1020 库内 attach_flag=2；第 9 项礼物 30012 仍为 5，缺赠礼消耗请求证据。详细状态以客户端验收表为准。
+- **N-2 联合特勤：filed，未修复。** 这是 chapter 203／stage_type 8 的普通刻印材料入口。新档 SC42001 空列表与可信 332 视图固定读取 3 组冲突；当前客户端 Lua 栈仍缺。332 客户端发送 42002；服务端未见 42002／42004 专用业务处理器，42004 只有空 42005 模板。本轮证据包为 `selftest_tmp/priority-repair/b1-n2-evidence-20261114/`：9 个文件均有字节码／Lua 哈希、LJD 实际命令及 exit 0；`p42_pb` 的 4 个消息、6 个字段与仓库 schema 相符，StageGroupCfg 有 30 个 type 8 候选组。索引与冻结 332 主清单相同，scripts64 与安装源相同。仍缺新档三组的选择、顺序、去重、权重、计数初值及周期迁移规则；协议默认值及 GameSetting 的阈值／费用不能替代业务规则。旧 master `[9,27,17]` 和其他 owner 计数继续仅作历史线索。公开检索未取得可用解法，GitHub 代码搜索不可读，范围不完整。下票先补可信成功初始化样本或服务端规则，不猜组，不扩完整刷新玩法或解除 R18 封锁。详见进度台账“N-2 取证接续”，含根 Codex／Luna 的功能与复杂度复核。
+
+  **2026-11-14 补证（只读取证，未实施修复）：** 对 332 `scripts64.ys` 全部 TextAsset（排除 config／laterconfig／qworld）做内存级常量扫描，命中 70 个对象，确认 42001～42005 仅出现在 `p42_pb.lua`、`ignoreMod` 的 LazyLoad 名表、`BattleEnchantAction.lua` 与大量 story 脚本；`BattleEnchantmentData` 由 `DataInclude.lua:293` 全局注入，`RedPointMgr` 无 `DAILY_EQUIP_ENCHANT` 逻辑（仅 `ChapterEquipEnchantmentItemView.lua` 与 `redpointMgr` 常量表命中）。`ChapterConst.DAILY_EQUIP_ENCHANT = 203`、`RedPointConst.DAILY_EQUIP_ENCHANT` 与 `SystemLinkCfg[318]`（system_id 309、link `/enchantment`）构成入口链路。`StageGroupCfg` type 8 分布为 level1＝15／level2＝10／level3＝5 共 30 组，203 系列 90 关在 `stage_meta.json` 中齐全且全部 `max_star=3`；`daily_stage_drop_cfg.json` 的 203 键与 90 关一一对应，掉落库仅 210001／210002／210003 三档。真实 9/26 登录与 9/27 补抓的 42001 帧均为 `08021000180b18081805`，解码为 `{free=2, buy=0, list=[11,8,5]}`，9/26 另见 `[11,6,5]`——证明同一账号跨日组集会变，但这是已有账号刷新结果，仍不能作为新档初值。`GameTimer.GetNextDayFreshTime` 与 `PlayerAction.RequestNewDayData`（cs_10500→sc_10501）说明跨日刷新走通用 NEW_DAY 通道，43200 秒级倒计时由 `GameSetting.fm_*` 驱动；`TipsCfg[60227]` 明确「每日刷新次数重置」，`TipsCfg[71452]`（EQUIP_STAGE_REFRESH）为「当前已存在高价值任务，是否确认刷新？」——这仅为确认弹窗，不是服务端权重规则。结论不变：仍缺新档选择／顺序／去重／权重与刷新计数初值的权威来源，不猜值、不实施。
+- **完整多维与其余逐项数值：已归档完成。** 2026-11-14 用户决定：M2 第 2～7、10 项与赠礼后重登不再逐项补三阶段截图，按“已完成”归档。第 1 项抽卡三阶段快照保留；第 8 项 1020／1022／1023 均 `attach_flag=2`；第 9 项隔离库回读 `material 50001 num=1`、`hero_archive 1045 exp=20`、`gift_list=[{"id":50001,"num":4}]`；第 11 项场景 3035111→3035401、`battle_count=1`、HP 9250/10000。今后不再以缺截图重复开票。
 - **M2 第 12 项仅为可选观察。** 1032018／1032019 缺本轮同场证据；不自动展开 B2 的 1032020、转储分析或三关修复。
-- **B1-C01 小 UID 兼容仍 filed。** SDK 的 Int32→Int64 异常由更换隔离夹具为正常分配的 12 位 UID 绕过，未修生产小 UID 接口。
+- **B1-C01 已 fixed。** `v5_server/server_net.py:1758` 的 Mix SDK 登录 `data.id` 由裸数字改为字符串。原存档主人 `2174928301` 已超 `Int32`（`2^31-1=2147483647`），12 位 UID 超得更多；区服列表 `save_slot_manager.py:880-882` 本就下发字符串，两端现已一致。`42`／`2174928301`／`261113200139` 三种 UID 验证可无损回读。
+- **B1-R01 已 fixed。** 332 冻结缓存 `selftest_tmp/priority-repair/b0-local-client/asset-cache`（1846 个 `.ys`、6,266,198,823 字节）此前不在 `cdn_proxy.cache_roots('pc')`，`find_cached_file` 必然 MISS（实测 `0017fcd338ae9791400e0726ca569b04.ys` 返回 `None`）。已通过既有配置项 `storage.cdn_read_roots` 登记为只读历史根（`../selftest_tmp/priority-repair/b0-local-client/asset-cache`），未改 `cdn_cache_dir`、未复制缓存、未改代码。登记后 200 个随机样本全部 HIT 且 MD5 校验通过。
+- **本轮回归：** `verify_resource_storage.py` 16 项 exit 0；`test_cdn_foundation.py` 30 项 exit 0；`verify_client_version.py` 13 项 exit 0；`verify_gateway_handoff.py` 7 项 exit 0。新增／删除模块、类、顶层函数、参数、配置键均为 0；`cdn_read_roots` 为既有键。
 
 ## 本机隔离环境与清理
 
@@ -88,9 +102,11 @@ git log -1 --format=%H -- v5_server/battle_server.py
 
 游戏本体是 `C:\Program Files\AetherGazerStarter_Bili\AetherGazer_Bili\AetherGazer_Bili.exe`，由用户直接启动。安装文件只读。本机目标 app 307／resource build 332／v5.3.6；SDK gateway version 308、渠道 10 分开记录，不能强行写为同一版本。
 
-本轮服务 PID 24768／exec 35738 已退出，游戏进程数为 0。Ctrl+C 退出码 1 不算优雅退出通过。hosts Restore 退出 0，原始 65492 字节及 SHA256 `5C1717F046D7DB88ACC5C2626BF41DB40C4866C9BD24AB9B25DE1E2CC6027A54` 完全一致；35 个 TCP 端口及 UDP 6105 可独占绑定，9 个保护文件与客户端主清单未变。
+上轮服务 PID 24768／exec 35738 已退出，游戏进程数为 0。Ctrl+C 退出码 1 不算优雅退出通过。hosts Restore 退出 0，原始 65492 字节及 SHA256 `5C1717F046D7DB88ACC5C2626BF41DB40C4866C9BD24AB9B25DE1E2CC6027A54` 完全一致；当时 35 个 TCP 端口及 UDP 6105 可独占绑定，9 个保护文件与客户端主清单未变。
 
-Restore 回执的即时 10 域解析仍为 127.0.0.1，原回执保留；后续新进程 Windows getaddrinfo 与 .NET 均确认两个关键域为 203.107.63.115，仅声明两域回读。最新证据是本票目录的 `running-service.json`、`cleanup-readback.json`、`hosts-restore-receipt.json`、`dns-after-restore.json`、`dns-system-after-restore.json`。不要把历史活动 PID 或旧回执当作当前状态，也不要原样输出含凭据的 SDK 日志。
+本轮 N-2 取证未启动服务或改 hosts。`evidence.json.environment_readback` 保存新回读：hosts 原字节、9 个保护文件及当前安装主清单均不变，13 个指定本机证据文件／目录均在。独占绑定为 TCP 33/35、UDP 6105 通过；8110、8111 返回 WinError 10013，环境检查 exit 1。随后 `netstat` 观察到对应 Codex／verge-mihomo 出站连接，未显示监听；未证明绑定失败的完整原因，也未停止这些进程。CIM 查询拒绝访问 exit 1；`Get-Process` exit 0，未见游戏、LocalServer 或 Python 进程。下次起服前重检，不沿用旧 35/35。指定周期 before 归档仍缺，旧 2 error 不改为 skip。
+
+上轮 Restore 回执的即时 10 域解析仍为 127.0.0.1，原回执保留；后续新进程 Windows getaddrinfo 与 .NET 均确认两个关键域为 203.107.63.115，仅声明两域回读。上轮证据是 `b1-client-20261114/` 下的 `running-service.json`、`cleanup-readback.json`、`hosts-restore-receipt.json`、`dns-after-restore.json`、`dns-system-after-restore.json`。不要把历史活动 PID 或旧回执当作当前状态，也不要原样输出含凭据的 SDK 日志。
 
 ## 保留的其他阶段结果
 

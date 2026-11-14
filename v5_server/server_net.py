@@ -1755,7 +1755,9 @@ def build_https_app(core, material=None, game_port=8105, gw_port=8102, host_ip=N
             return jsonify({
                 "errorCode": "0",
                 "data": {
-                    "id": _gen.DEFAULT_UID,
+                    # 存档 UID 可达 12 位（见 save_generator.UID_MAX_DIGITS），
+                    # 超出 Int32 时数字形式会被客户端拒绝；区服列表同样用字符串。
+                    "id": str(_gen.DEFAULT_UID),
                     "createDate": 1760276673000,
                     "modifyDate": int(time.time() * 1000),
                     "gameId": 3,

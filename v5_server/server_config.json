@@ -3,7 +3,9 @@
     "cdn_cache_dir": "./cdn_cache",
     "notes": "CDN资源落包根目录（支持相对路径如 ./cdn_cache 或自定义绝对路径）",
     "cdn_root_selected": false,
-    "cdn_read_roots": []
+    "cdn_read_roots": [
+      "../selftest_tmp/priority-repair/b0-local-client/asset-cache"
+    ]
   },
   "client": {
     "game_install_dir": "",
