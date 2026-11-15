@@ -1,0 +1,919 @@
+{
+ "generated_at": "2026-09-29 21:20:44",
+ "count": 64,
+ "params": {
+  "cs_10038": {
+   "channel_id": 10,
+   "account": "82513451409418363",
+   "timestamp": 1790416156,
+   "token": "0ee92cb084a6cc6384afd5264ecbc047.82513451409418363",
+   "device_id": "fd692c2b696f61505edebfdebff2c2a4b56a9c48",
+   "app_id": "bd2fc85f8ecd35fd13deec46560bb36a",
+   "platform_type": 3
+  },
+  "cs_10042": {
+   "channel_id": 10,
+   "server_id": 1,
+   "account": "82513451409418363",
+   "user_id": 1075038942,
+   "timestamp": 1790416156,
+   "gstoken": "0daa02d35a8020bb5ec0d0c210718b40",
+   "type": 0,
+   "platform_type": 3,
+   "device_id": "fd692c2b696f61505edebfdebff2c2a4b56a9c48",
+   "client_vs": "307",
+   "os_vs": "1010.0.1904564",
+   "phone": "NVIDIA",
+   "mac": "",
+   "imei": "",
+   "idfa": "",
+   "distinct_id": "c5d8037474de4a95bf392cb2ab49bce6",
+   "oaid": "",
+   "master_channel_id": 8,
+   "app_id": "bd2fc85f8ecd35fd13deec46560bb36a",
+   "sub_id": "W13002001",
+   "resource_vs": "321",
+   "device_model": "MS-Challenger B450M (MAXSUN)",
+   "zone_offset": 8,
+   "b_sdk_udid": "0",
+   "b_sdk_uid": "11387591",
+   "b_tour_indicator": 0,
+   "b_game_base_id": 109036,
+   "b_game_id": 8264,
+   "ram": "16326",
+   "rom": "20000",
+   "cpu_hardware": "AMD Ryzen 5 5600 6-Core Processor -3493-12",
+   "network": "WIFI",
+   "language": "zh_cn",
+   "graph_device_id": "10245",
+   "graph_device_name": "NVIDIA GeForce RTX 4060 Ti",
+   "graph_memory_size": 16109,
+   "graph_device_vendor": "NVIDIA",
+   "graph_device_vendor_id": "4318",
+   "graph_device_version": "Direct3D 11.0 [level 11.1]",
+   "is_localization": true,
+   "resolution": "2560x1440"
+  },
+  "cs_10050": {
+   "need_request": 1
+  },
+  "cs_11010": {
+   "activity_id": 3
+  },
+  "cs_12002": {
+   "story_id": 103050401
+  },
+  "cs_12012": {
+   "mod_guide_id": 290
+  },
+  "cs_12046": {
+   "type": 11
+  },
+  "cs_13012": {
+   "hero_id": 1027,
+   "equip_id": 1057,
+   "pos": 1
+  },
+  "cs_14014": {
+   "id": 1199,
+   "item_list": [
+    {
+     "id": 40102,
+     "num": 1
+    }
+   ]
+  },
+  "cs_14030": {
+   "hero_id": 1027,
+   "skill_id": 1027201,
+   "num": 1
+  },
+  "cs_14034": {
+   "hero_id": 1085,
+   "skin_id": 108502
+  },
+  "cs_14036": {
+   "hero_id": 1199
+  },
+  "cs_14042": {
+   "hero_id": 1022
+  },
+  "cs_14100": {
+   "archive_id": 1013,
+   "gift_list": [
+    {
+     "id": 50028,
+     "num": 1
+    }
+   ]
+  },
+  "cs_14104": {
+   "archive_id": 1048,
+   "video_list": [
+    211480102
+   ]
+  },
+  "cs_14120": {
+   "hero_id": 1199,
+   "level": 100,
+   "item_list": [
+    {
+     "id": 40102,
+     "num": 31
+    },
+    {
+     "id": 40103,
+     "num": 20
+    },
+    {
+     "id": 40104,
+     "num": 130
+    }
+   ]
+  },
+  "cs_14510": {
+   "oath_plot": {
+    "hero_id": 1049,
+    "text_list": [
+     210490111
+    ]
+   }
+  },
+  "cs_16010": {
+   "type": 10,
+   "pool": 5030301,
+   "cost": {
+    "id": 38,
+    "num": 10
+   }
+  },
+  "cs_16012": {
+   "id": 10002
+  },
+  "cs_18010": {
+   "hero_id_list": [
+    1049
+   ],
+   "beacon_id_list": [
+    13,
+    14,
+    3
+   ],
+   "difficulty": 20
+  },
+  "cs_18012": {
+   "index": 2
+  },
+  "cs_18014": {
+   "index": 1
+  },
+  "cs_19036": {
+   "channel": 2
+  },
+  "cs_20012": {
+   "buy_goods_list": [
+    {
+     "buy_id": 6000003,
+     "buy_num": 10,
+     "cost_items": [
+      {
+       "id": 1,
+       "num": 2000
+      }
+     ],
+     "buy_type": 0
+    }
+   ],
+   "shop_id": 6,
+   "buy_source": 2
+  },
+  "cs_27012": {
+   "operation": 2
+  },
+  "cs_28010": {
+   "id": 6007
+  },
+  "cs_28014": {
+   "id_list": [
+    71001
+   ],
+   "type": 90001
+  },
+  "cs_28016": {
+   "need_active_point": 60,
+   "activity_pt_id": 1
+  },
+  "cs_30004": {
+   "id": 0
+  },
+  "cs_30008": {
+   "id": 210
+  },
+  "cs_32016": {
+   "poster_girl": 1085
+  },
+  "cs_32108": {
+   "poster_background_id": 6042
+  },
+  "cs_32124": {
+   "type": 1,
+   "model": 0
+  },
+  "cs_32130": {
+   "type": 1,
+   "random_list": [
+    107301,
+    108501,
+    107602,
+    109502,
+    102003,
+    107002,
+    106103,
+    104701,
+    113701,
+    108502
+   ]
+  },
+  "cs_32132": {
+   "background_id": 6033,
+   "hero_id": 107301
+  },
+  "cs_38014": {
+   "log_list": [
+    {
+     "event_name": "button_touch",
+     "attribute_json": "{\"button_name\":\"homepage_bp\"}"
+    }
+   ]
+  },
+  "cs_38016": {
+   "log_list": [
+    {
+     "id": "10001",
+     "time": 5
+    }
+   ]
+  },
+  "cs_46034": {
+   "hero_id": 1027,
+   "material_list": [
+    {
+     "id": 40202,
+     "num": 204
+    },
+    {
+     "id": 40203,
+     "num": 59
+    }
+   ],
+   "target_level": 60,
+   "breakthrough_times": 4
+  },
+  "cs_50002": {
+   "id": 102702
+  },
+  "cs_50018": {
+   "hero_id": 1027,
+   "slot_id": 2,
+   "secondary": 102701
+  },
+  "cs_54030": {
+   "common_info": {
+    "type": 52,
+    "dest": 3035199,
+    "activity_id": 4407301,
+    "battle_times": 1,
+    "index": 0,
+    "cooperate_unique_skill_id": 0,
+    "cooperate_unique_skill_level": 1,
+    "battle_vs": 305,
+    "mimir_info": [
+     {
+      "mimir_id": 0,
+      "hero_id": 0
+     }
+    ]
+   },
+   "is_restarted_battle": 0
+  },
+  "cs_54032": {
+   "battle_id": 281479214501492
+  },
+  "cs_54034": {
+   "stage_id": 5330101,
+   "activity_id": 0
+  },
+  "cs_54300": {
+   "scene_id": "1030504",
+   "mission_clear_times": 0,
+   "role_data": [
+    {
+     "uid": "1075038942",
+     "player_level": 100,
+     "hero_id": 1166,
+     "hero_level": 30,
+     "attribute_id": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      11,
+      12,
+      13,
+      21,
+      22,
+      23,
+      24,
+      25,
+      31,
+      32,
+      41,
+      42,
+      43,
+      44,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      81,
+      82,
+      83,
+      84,
+      101,
+      102,
+      111,
+      112,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168,
+      169,
+      171,
+      172,
+      173,
+      174,
+      175,
+      176,
+      177,
+      178,
+      179,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187,
+      188,
+      189,
+      201,
+      202,
+      203,
+      204,
+      211,
+      212,
+      213,
+      214,
+      221,
+      222,
+      231,
+      232,
+      702,
+      10001,
+      1121,
+      512,
+      1119,
+      1118,
+      1101,
+      421,
+      1108,
+      1112,
+      1116,
+      303,
+      302,
+      301,
+      1117,
+      1115,
+      1114,
+      1113,
+      1111,
+      311,
+      1110,
+      500,
+      1109,
+      1107,
+      1106,
+      1105,
+      1104,
+      319,
+      318,
+      317,
+      511,
+      315,
+      314,
+      313,
+      312,
+      521,
+      522,
+      1103,
+      1102,
+      1006,
+      1002,
+      320,
+      321,
+      1004,
+      332,
+      333,
+      330,
+      331,
+      1005,
+      1003,
+      600,
+      1001,
+      703,
+      450,
+      401,
+      402,
+      316,
+      334,
+      460,
+      1120,
+      513,
+      514,
+      701,
+      2222
+     ],
+     "attribute_value": [
+      1999,
+      972,
+      14733,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      100,
+      200,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      12
+     ],
+     "astrolabe": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "equipment": [
+      1
+     ],
+     "skill_level": [
+      20,
+      20,
+      20,
+      20,
+      20,
+      1
+     ],
+     "weapon_effect_id": 0,
+     "weapon_effect_level": 0
+    }
+   ],
+   "attribute_factor": [
+    1000,
+    1000,
+    2000
+   ],
+   "cooperate_unique_skill_id": 0,
+   "cooperate_unique_skill_level": 1,
+   "need_resurrect": true,
+   "coin_number": 13627294,
+   "coin_consume": 100,
+   "max_coin_number": 0,
+   "resurrect_hp": 0,
+   "resurrect_immediately": false,
+   "difficulty": 1,
+   "adaptive_enemy_level": 26,
+   "max_race_id": 0,
+   "max_race_player_count": 1,
+   "target_enemy_id": 0,
+   "battle_id": "281479214448237",
+   "uid": "1075038942",
+   "is_multi_player": false,
+   "nick_name": "miku233e",
+   "vhl_result": 0,
+   "left_time": 0,
+   "challenge_factor": 1
+  },
+  "cs_56002": {
+   "red_dot": 504117001
+  },
+  "cs_58002": {
+   "nothing": 1
+  },
+  "cs_58018": {
+   "architecture_id": 4,
+   "pos": [
+    1,
+    2,
+    3,
+    4
+   ]
+  },
+  "cs_58104": {
+   "architecture_id": 4,
+   "type": 1,
+   "hero_id": 1013
+  },
+  "cs_58106": {
+   "architecture_id": 4
+  },
+  "cs_58132": {
+   "architecture_id": 5,
+   "hero_id": [
+    1166,
+    1042,
+    1097,
+    1012,
+    1059
+   ]
+  },
+  "cs_58138": {
+   "type": 1,
+   "hero_id": 0
+  },
+  "cs_58174": {
+   "hero_pos_list": [
+    {
+     "hero_id": 1034,
+     "pos": 1
+    },
+    {
+     "hero_id": 1043,
+     "pos": 2
+    },
+    {
+     "hero_id": 1044,
+     "pos": 3
+    },
+    {
+     "hero_id": 1045,
+     "pos": 4
+    },
+    {
+     "hero_id": 1046,
+     "pos": 5
+    }
+   ]
+  },
+  "cs_63000": {
+   "team_type": 314,
+   "cont_team": {
+    "cont_id": 0,
+    "teams": [
+     {
+      "team_index": 1,
+      "hero_list": [
+       {
+        "hero_id": 1095,
+        "owner_id": 0,
+        "hero_type": 1
+       },
+       {
+        "hero_id": 1034,
+        "owner_id": 0,
+        "hero_type": 1
+       },
+       {
+        "hero_id": 1015,
+        "owner_id": 0,
+        "hero_type": 1
+       }
+      ],
+      "cooperate_unique_skill_id": 65,
+      "mimir_info": {
+       "mimir_id": 5,
+       "chip_list": [
+        107,
+        108
+       ],
+       "hero_id": 0
+      }
+     }
+    ]
+   }
+  },
+  "cs_66038": {
+   "cooperate_unique_skill_id": 0
+  },
+  "cs_67004": {
+   "area_id": 10001,
+   "hour_time": 20,
+   "mimir_id": 10001
+  },
+  "cs_67006": {
+   "area_id": 10001
+  },
+  "cs_84332": {
+   "activity_id": 4343601,
+   "stage_id": 436102,
+   "result": 0,
+   "round": 0,
+   "score": 0,
+   "kill_num": 3
+  },
+  "cs_88004": {
+   "node_id": 1002
+  },
+  "cs_88008": {
+   "sign": 1
+  },
+  "cs_88024": {
+   "opt_id": 0
+  },
+  "cs_88030": {
+   "type": 1
+  },
+  "cs_88100": {
+   "template_id": 100001,
+   "difficult": 4,
+   "hero_list": [
+    {
+     "hero_id": 1095,
+     "temp_id": 0,
+     "hp_ratio": 10000
+    },
+    {
+     "hero_id": 1034,
+     "temp_id": 0,
+     "hp_ratio": 10000
+    },
+    {
+     "hero_id": 1015,
+     "temp_id": 0,
+     "hp_ratio": 10000
+    }
+   ]
+  },
+  "cs_88200": {
+   "event_id": 5,
+   "param_arg": 1
+  },
+  "cs_89402": {
+   "stage_id": 40650,
+   "score": 30396,
+   "harm": 39359
+  }
+ },
+ "sources": {
+  "cs_10038": "2026-09-26_批量/tcp_3_up_8102.jsonl",
+  "cs_10042": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_10050": "2026-09-26_主城/tcp_2_up_8105.jsonl",
+  "cs_11010": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_12002": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_12012": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_12046": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_13012": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14014": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14030": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14034": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_14036": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14042": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14100": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14104": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_14120": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_14510": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_16010": "2026-09-26_抽卡/tcp_2_up_8105.jsonl",
+  "cs_16012": "2026-09-26_抽卡/tcp_2_up_8105.jsonl",
+  "cs_18010": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_18012": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_18014": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_19036": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_20012": "2026-09-26_抽卡/tcp_2_up_8105.jsonl",
+  "cs_27012": "2026-09-26_商城邮件/tcp_2_up_8105.jsonl",
+  "cs_28010": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_28014": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_28016": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_30004": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_30008": "2026-09-26_商城邮件/tcp_2_up_8105.jsonl",
+  "cs_32016": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_32108": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_32124": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_32130": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_32132": "2026-09-26_商城邮件/tcp_2_up_8105.jsonl",
+  "cs_38014": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_38016": "2026-09-26_角色列表/tcp_2_up_8105.jsonl",
+  "cs_46034": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_50002": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_50018": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_54030": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_54032": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_54034": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_54300": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_56002": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58002": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58018": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58104": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58106": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58132": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58138": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_58174": "2026-09-26_批量/tcp_4_up_8105.jsonl",
+  "cs_63000": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_66038": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_67004": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_67006": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_84332": "2026-09-27_补抓2/tcp_4_up_8105.jsonl",
+  "cs_88004": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_88008": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_88024": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_88030": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_88100": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_88200": "2026-09-26_批量/tcp_2_up_8105.jsonl",
+  "cs_89402": "2026-09-27_补抓2/tcp_4_up_8105.jsonl"
+ }
+}
