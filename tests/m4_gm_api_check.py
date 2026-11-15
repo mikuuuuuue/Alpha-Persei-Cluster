@@ -23,6 +23,7 @@ import gm_save_scope
 import inventory_service as inventory
 from save_generator import generation_config
 import server_net
+from save_slot_manager import SaveSlotManager
 
 UID = 42
 HERO = 1075
@@ -64,7 +65,7 @@ class GmApiTests(unittest.TestCase):
         self.stack.enter_context(patch.object(gm_api, '_global_get_db', return_value=self.db))
         self.stack.enter_context(patch.object(gm_save_scope, 'catalog', return_value=[
             dict(filename=p.name, uid=UID) for p in self.paths]))
-        self.stack.enter_context(patch('save_slot_manager.get_slot_manager', return_value=SimpleNamespace(server_dir=self.folder)))
+        self.stack.enter_context(patch('save_slot_manager.get_slot_manager', return_value=SaveSlotManager(self.folder)))
         self.backups = self.stack.enter_context(patch.object(AccountDB, 'backup_save_file', return_value='isolated-backup'))
         self.stack.enter_context(patch.object(server_net, '_online_game_conns', {}))
         self.stack.enter_context(patch.object(gm_reader, '_ITEMS_CATALOG_MAP', None))

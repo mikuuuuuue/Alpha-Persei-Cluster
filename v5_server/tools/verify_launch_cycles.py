@@ -65,7 +65,7 @@ class LaunchCycleTests(unittest.TestCase):
             dict(filename=self.save_path.name, uid=UID)]))
         self.stack.enter_context(patch.object(
             save_slot_manager, 'get_slot_manager',
-            return_value=SimpleNamespace(server_dir=self.folder)))
+            return_value=save_slot_manager.SaveSlotManager(self.folder)))
         self.stack.enter_context(patch.object(server_net, '_online_game_conns', {}))
         self.backups = self.stack.enter_context(
             patch.object(AccountDB, 'backup_save_file', return_value='isolated-backup'))
@@ -149,7 +149,7 @@ class LaunchCycleTests(unittest.TestCase):
 
     def test_launch_config_rejects_bad_ports_unknown_fields_and_preserves_file_on_write_error(self):
         headers = self.login()
-        self.config_path.parent.mkdir(parents=True)
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         original = b'{"overrides":{"cdn_mode":"off"}}\n'
         self.config_path.write_bytes(original)
         invalid = [{key: value} for key in launch_settings.PORTS for value in (-1, 65536, True, '8105')]
@@ -183,7 +183,7 @@ class LaunchCycleTests(unittest.TestCase):
 
     def test_saved_launch_values_reach_real_main_parser_and_cli_values_override_them(self):
         headers = self.login()
-        self.config_path.parent.mkdir(parents=True)
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with patch.object(linux_manager, 'probe_endpoints', return_value=[]) as probe:
             response = self.post_launch({
                 'https_port': 19444,

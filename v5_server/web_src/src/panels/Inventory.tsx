@@ -29,24 +29,11 @@ import {
   fetchInventoryItems,
   addEquipSuit,
   clearInventory,
-  resolveAssetUrl,
   isTrialSkinFilm,
   isDisplayOnlyItem,
 } from '../lib/api'
 import { useElementSize } from '../lib/useElementSize'
-import defaultCatalog from '../data/items_catalog.json'
-import { INVENTORY_OFFLINE_SNAPSHOT } from '../data/inventory_fallback'
-
-// 官方字典条目原始结构
-interface CatalogItem {
-  id: number
-  name: string
-  type: number
-  rare: number // 1 ~ 5
-  icon_file: string
-  quality_frame: string
-  suit_id?: number
-}
+import { itemById, itemCatalog, itemName, itemSearchScore, refreshDraftAttachment, type CatalogItem } from '../data/itemCatalog'
 
 // 展现层融合结构
 interface InventoryDisplayItem extends CatalogItem {
@@ -62,6 +49,7 @@ export interface MailDraftAttachment {
   icon_file: string
   quality_frame: string
   count: number
+  selected?: boolean
 }
 
 const STORAGE_KEY_MAIL_DRAFT = 'gm_mail_draft_attachments'
@@ -73,7 +61,7 @@ function loadSavedDraft(): MailDraftAttachment[] {
     if (!raw) return []
     const parsed: MailDraftAttachment[] = JSON.parse(raw)
     return Array.isArray(parsed)
-      ? parsed.filter((d) => !isDisplayOnlyItem(Number(d.id), undefined, d.name))
+      ? parsed.map(refreshDraftAttachment).filter((d) => !isDisplayOnlyItem(d.id, itemById.get(d.id)?.type, d.name))
       : []
   } catch {
     return []
@@ -104,6 +92,7 @@ function getCategoryLabel(type: number, id?: number, name?: string): string {
       return '宝箱礼包'
     case 4:
     case 3:
+    case 6:
       return '培养材料'
     case 7:
       return '刻印套装'
@@ -112,7 +101,6 @@ function getCategoryLabel(type: number, id?: number, name?: string): string {
     case 14:
       return '个性装扮'
     case 10:
-    case 6:
     default:
       return '其他道具'
   }
@@ -130,6 +118,7 @@ function getCategoryBadgeStyle(type: number, id?: number, name?: string): string
       return 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/25'
     case 4:
     case 3:
+    case 6:
       return 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-500/25'
     case 7:
       return 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/25'
@@ -214,22 +203,23 @@ function HeaderCell({ children, align }: { children: React.ReactNode; align?: 'e
 }
 
 export default function InventoryPanel() {
-  const { activeUid, selectedSave } = useServer()
-
-  // 1. 核心数据状态（带离线 1,757 项全图鉴与 879 项真实持仓离线兜底，永不为0）
-  const [catalog, setCatalog] = useState<CatalogItem[]>(defaultCatalog as CatalogItem[])
-  const [ownedMap, setOwnedMap] = useState<Record<number, number>>(INVENTORY_OFFLINE_SNAPSHOT)
-  const [isLoading, setIsLoading] = useState(false)
+  const { activeUid, isOnline, isAuthenticated, selectedSave } = useServer()
+  const inventoryScope = `${selectedSave}:${activeUid}`
+  const canLoadInventory = isOnline && isAuthenticated && activeUid > 0
+  const [holdings, setHoldings] = useState<{ scope: string; counts: Record<number, number> } | null>(null)
+  const [inventoryError, setInventoryError] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [inventoryLoaded, setInventoryLoaded] = useState(false)
+  const inventoryRequest = useRef(0)
+  const hasHoldings = canLoadInventory && holdings?.scope === inventoryScope
+  const ownedMap = useMemo(() => hasHoldings ? holdings.counts : {}, [hasHoldings, holdings])
+
   const [isWriting, setIsWriting] = useState(false)
   const [writeMessage, setWriteMessage] = useState('')
   const [suitId, setSuitId] = useState('1')
   const [suitStar, setSuitStar] = useState('3')
   const [clearTarget, setClearTarget] = useState<{ uid: number; save: string } | null>(null)
-  const inventoryRequest = useRef(0)
   const currentIdentity = useRef('')
-  currentIdentity.current = `${selectedSave}:${activeUid}`
+  currentIdentity.current = inventoryScope
 
   // 2. 筛选与视图状态
   const [view, setView] = useState<ViewMode>('grid')
@@ -246,69 +236,38 @@ export default function InventoryPanel() {
   const [mailDraft, setMailDraft] = useState<MailDraftAttachment[]>(loadSavedDraft)
   const [isDraftModalOpen, setIsDraftModalOpen] = useState(false)
 
-  // 异步加载官方 1,757 项纯净条目字典
-  useEffect(() => {
-    let isMounted = true
-    const catalogUrl = resolveAssetUrl('extracted_assets/items/items_catalog.json')
-    fetch(catalogUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data: CatalogItem[]) => {
-        if (isMounted) {
-          setCatalog(data)
-        }
-      })
-      .catch((err) => {
-        console.error('加载 items_catalog.json 异常:', err)
-      })
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  // 异步拉取当前账号在测试库的真实持仓
-  const loadInventory = async (isManual = false) => {
-    const requestId = ++inventoryRequest.current
-    const identity = `${selectedSave}:${activeUid}`
-    if (isManual) setIsRefreshing(true)
+  const loadInventory = async () => {
+    const request = ++inventoryRequest.current
+    setIsRefreshing(true)
+    setInventoryError('')
     try {
       const res = await fetchInventoryItems(activeUid)
-      if (identity !== currentIdentity.current || requestId !== inventoryRequest.current) return false
-      if (res.code === 0 && res.data && Array.isArray(res.data.items)) {
-        const map: Record<number, number> = {}
-        for (const it of res.data.items) {
-          map[it.id] = (map[it.id] || 0) + (it.num || 1)
-        }
-        setOwnedMap(map)
-        setInventoryLoaded(true)
-      } else {
-        setInventoryLoaded(false)
-        throw new Error(res.msg || '无法读取库存')
+      if (request !== inventoryRequest.current) return false
+      if (res.code !== 0 || !Array.isArray(res.data?.items)) throw new Error(res.msg || '读取库存失败')
+      const counts: Record<number, number> = {}
+      for (const item of res.data.items) {
+        if (Number.isInteger(item.id) && item.num > 0) counts[item.id] = (counts[item.id] || 0) + item.num
       }
+      setHoldings({ scope: inventoryScope, counts })
     } catch (err) {
-      if (identity !== currentIdentity.current || requestId !== inventoryRequest.current) return false
-      setInventoryLoaded(false)
-      setWriteMessage(err instanceof Error ? err.message : '无法读取库存，请刷新')
-      console.warn('获取玩家背包持仓失败:', err)
+      if (request === inventoryRequest.current) {
+        setHoldings(null)
+        setInventoryError(err instanceof Error ? err.message : '读取库存失败')
+      }
       return false
     } finally {
-      if (identity === currentIdentity.current && requestId === inventoryRequest.current) {
-        setIsLoading(false)
-        setIsRefreshing(false)
-      }
+      if (request === inventoryRequest.current) setIsRefreshing(false)
     }
     return true
   }
 
   useEffect(() => {
-    setInventoryLoaded(false)
-    setIsRefreshing(false)
     setClearTarget(null)
     setWriteMessage('')
-    loadInventory()
-  }, [activeUid, selectedSave])
+    if (canLoadInventory) void loadInventory()
+    else { setHoldings(null); setIsRefreshing(false); setInventoryError('') }
+    return () => { inventoryRequest.current++ }
+  }, [inventoryScope, canLoadInventory])
 
   const handleGrantSuit = async () => {
     const identity = currentIdentity.current
@@ -347,17 +306,20 @@ export default function InventoryPanel() {
 
   // 将 catalog 与 ownedMap O(1) 融合
   const mergedItems = useMemo<InventoryDisplayItem[]>(() => {
-    return catalog.map((cat) => ({
+    const unlisted = Object.keys(ownedMap).map(Number).filter(id => !itemById.has(id))
+      .map(id => ({ id, name: '', type: 0, rare: 0, icon_file: '', quality_frame: '' }))
+    return [...itemCatalog, ...unlisted].map((cat) => ({
       ...cat,
+      name: itemName(cat),
       category: getCategoryLabel(cat.type, cat.id, cat.name),
       ownedCount: ownedMap[cat.id] || 0,
     }))
-  }, [catalog, ownedMap])
+  }, [ownedMap])
 
   // 多维筛选计算
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return mergedItems.filter((item) => {
+    const matches = mergedItems.filter((item) => {
       // 1. 仅看已拥有
       if (onlyOwned && item.ownedCount <= 0) return false
 
@@ -367,15 +329,10 @@ export default function InventoryPanel() {
       // 3. 品质筛选
       if (quality !== 'all' && String(item.rare) !== quality) return false
 
-      // 4. 关键词检索 (支持 ID / 名称)
-      if (q) {
-        const matchId = String(item.id).includes(q)
-        const matchName = item.name.toLowerCase().includes(q)
-        if (!matchId && !matchName) return false
-      }
-
-      return true
+      return !q || itemSearchScore(item, q) > 0
     })
+    if (q) matches.sort((a, b) => itemSearchScore(b, q) - itemSearchScore(a, q))
+    return matches
   }, [mergedItems, query, category, quality, onlyOwned])
 
   // 单页规模数值
@@ -461,7 +418,7 @@ export default function InventoryPanel() {
 
   // 添加/移除邮件附件草稿
   const handleToggleDraft = (item: InventoryDisplayItem) => {
-    if (isDisplayOnlyItem(item.id, item.type, item.name)) {
+    if (!itemById.has(item.id) || isDisplayOnlyItem(item.id, item.type, item.name)) {
       return
     }
     setMailDraft((prev) => {
@@ -504,7 +461,7 @@ export default function InventoryPanel() {
 
   /* ---------------- 视图行渲染函数 ---------------- */
   const renderCard = (item: InventoryDisplayItem) => {
-    const isDisplayOnly = isDisplayOnlyItem(item.id, item.type, item.name)
+    const isDisplayOnly = !itemById.has(item.id) || isDisplayOnlyItem(item.id, item.type, item.name)
     const inDraft = isItemInDraft(item.id)
     const isOwned = item.ownedCount > 0
     return (
@@ -520,6 +477,7 @@ export default function InventoryPanel() {
         {/* 上半部：正版品质框槽位 */}
         <div className="pt-0.5">
           <ItemSlot
+            strictIcon
             id={item.id}
             name={item.name}
             rare={item.rare}
@@ -562,7 +520,7 @@ export default function InventoryPanel() {
   }
 
   const renderTableRow = (item: InventoryDisplayItem) => {
-    const isDisplayOnly = isDisplayOnlyItem(item.id, item.type, item.name)
+    const isDisplayOnly = !itemById.has(item.id) || isDisplayOnlyItem(item.id, item.type, item.name)
     const inDraft = isItemInDraft(item.id)
     return (
       <div
@@ -572,6 +530,7 @@ export default function InventoryPanel() {
       >
         <div className="flex min-w-0 items-center gap-2.5 px-4">
           <ItemSlot
+            strictIcon
             id={item.id}
             name={item.name}
             rare={item.rare}
@@ -639,7 +598,7 @@ export default function InventoryPanel() {
   }
 
   const renderListRow = (item: InventoryDisplayItem) => {
-    const isDisplayOnly = isDisplayOnlyItem(item.id, item.type, item.name)
+    const isDisplayOnly = !itemById.has(item.id) || isDisplayOnlyItem(item.id, item.type, item.name)
     const inDraft = isItemInDraft(item.id)
     return (
       <div
@@ -650,6 +609,7 @@ export default function InventoryPanel() {
         <div className="truncate px-4 font-mono text-[11px] text-muted">{item.id}</div>
         <div className="flex min-w-0 items-center gap-2.5 px-4">
           <ItemSlot
+            strictIcon
             id={item.id}
             name={item.name}
             rare={item.rare}
@@ -732,8 +692,8 @@ export default function InventoryPanel() {
               size="sm"
               variant="secondary"
               className="gap-1.5"
-              onPress={() => loadInventory(true)}
-              isDisabled={isRefreshing}
+              onPress={loadInventory}
+              isDisabled={!canLoadInventory || isRefreshing}
             >
               <RefreshCw className={cn('size-4', isRefreshing && 'animate-spin')} />
               <span>刷新库存</span>
@@ -758,9 +718,9 @@ export default function InventoryPanel() {
                 {[3, 4, 5].map((star) => <option key={star} value={star}>{star} 星</option>)}
               </select>
             </label>
-            <Button size="sm" onPress={handleGrantSuit} isDisabled={isWriting || !inventoryLoaded}>发放 1～6 槽套装</Button>
+            <Button size="sm" onPress={handleGrantSuit} isDisabled={isWriting || !hasHoldings}>发放 1～6 槽套装</Button>
             <Button size="sm" variant="secondary" onPress={() => setClearTarget({ uid: activeUid, save: selectedSave })}
-              isDisabled={isWriting || !inventoryLoaded}>清理普通材料</Button>
+              isDisabled={isWriting || !hasHoldings}>清理普通材料</Button>
           </div>
           <p className="text-xs text-muted">操作当前所选存档。请先退出该存档的游戏账号。</p>
           {writeMessage && <p role="status" className="text-sm">{writeMessage}</p>}
@@ -795,14 +755,14 @@ export default function InventoryPanel() {
               <div className="flex items-center gap-1.5">
                 <span className="text-muted">全服图鉴</span>
                 <span className="font-mono font-semibold tabular-nums text-foreground">
-                  {catalog.length.toLocaleString('en-US')} 项
+                  {itemCatalog.length.toLocaleString('en-US')} 项
                 </span>
               </div>
               <Separator orientation="vertical" className="h-3.5" />
               <div className="flex items-center gap-1.5">
                 <span className="text-muted">当前已拥有</span>
                 <span className="font-mono font-semibold tabular-nums text-accent">
-                  {ownedTotalTypes.toLocaleString('en-US')} 种
+                  {hasHoldings ? `${ownedTotalTypes.toLocaleString('en-US')} 种` : '—'}
                 </span>
               </div>
               <Separator orientation="vertical" className="h-3.5" />
@@ -973,12 +933,7 @@ export default function InventoryPanel() {
       </Card>
 
       {/* 3. 物品展示主体区（虚拟滚动视口常驻） */}
-      {isLoading ? (
-        <div className="flex h-64 flex-col items-center justify-center gap-3">
-          <RefreshCw className="size-6 animate-spin text-muted" />
-          <p className="text-sm text-muted">正在加载背包资产与官方图鉴...</p>
-        </div>
-      ) : (
+      {inventoryError && <p role="alert" className="text-sm text-danger">{inventoryError}</p>}
         <div className="space-y-3">
           {/* 虚拟滚动视口容器（常驻挂载，绝对不因过滤集为空而销毁重建） */}
           <div
@@ -1096,7 +1051,6 @@ export default function InventoryPanel() {
             )}
           </div>
         </div>
-      )}
 
       {/* 4. 邮件草稿附件箱模态弹窗（彻底修复暗屏居中问题） */}
       <Modal.Root isOpen={isDraftModalOpen} onOpenChange={setIsDraftModalOpen}>
@@ -1133,6 +1087,7 @@ export default function InventoryPanel() {
                     {mailDraft.map((row) => (
                       <div key={row.id} className="flex items-center gap-3 py-2.5">
                         <ItemSlot
+                          strictIcon
                           id={row.id}
                           name={row.name}
                           rare={row.rare}

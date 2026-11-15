@@ -329,8 +329,13 @@ def backup(path):
 def recycle(paths):
     for path in paths:
         source=Path(path).resolve()
-        if source.parent!=root: raise RuntimeError('测试回收路径越界')
-        source.replace(root/'Trash'/(source.name+'.stage'))
+        if source.parent != root/'Trash' or not source.is_dir():
+            raise RuntimeError('测试回收路径越界')
+        for child in source.iterdir():
+            if child.is_symlink() or not child.is_file() or child.resolve().parent != source:
+                raise RuntimeError('测试回收文件越界')
+            child.replace(root/'Trash'/(child.name+'.stage'))
+        source.rmdir()
 AccountDB.backup_save_file=staticmethod(backup)
 slots._recycle_save_files=recycle
 with manager._registry_lock():
