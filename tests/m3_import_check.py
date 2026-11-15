@@ -84,7 +84,9 @@ class CaptureImportTests(unittest.TestCase):
             source.set_currency(uid, 2, 777)
             source.set_material(uid, 41201, 3)
             source.execute('INSERT INTO servant(uid,id,prefab_id,stage,is_locked,owned) VALUES(?,701,2310001,1,0,1)', (uid,))
-            InventoryService.grant_equip_suit(Connection(uid=uid, db=source, generator=generator, codec_encode=codec.encode, codec_decode=codec.decode).to_handler_ctx(), uid, 1, 3)
+            context = Connection(uid=uid, db=source, generator=generator, codec_encode=codec.encode, codec_decode=codec.decode).to_handler_ctx()
+            InventoryService.grant_items(context, uid, [(prefab, 1) for prefab in
+                (310001, 320001, 330001, 340001, 350001, 360001)], source='gm')
             source.execute('DELETE FROM mail WHERE uid=?', (uid,))
             sock = Sock()
             with patch('ai_translator.AITranslator.trigger_login_greeting'):
