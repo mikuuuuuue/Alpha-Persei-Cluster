@@ -266,7 +266,7 @@ class SaveDeleteTests(unittest.TestCase):
             db.export_new_save(path)
             db.close()
         self.manager.set_active_db(self.mounted)
-        self.manager._save_registry(self.registry, strict=True)
+        self.manager._save_registry(self.registry)
         app = Flask(__name__)
         app.register_blueprint(gm_api.gm_bp, url_prefix='/api/gm')
         self.client = app.test_client()
@@ -332,7 +332,7 @@ class SaveDeleteTests(unittest.TestCase):
     def test_unregistered_save_recycles_with_sidecars(self):
         import save_slot_manager
 
-        self.manager._save_registry({3: self.primary.name, 8: self.mounted.name}, strict=True)
+        self.manager._save_registry({3: self.primary.name, 8: self.mounted.name})
         sidecar = self.target.with_name(self.target.name + '-journal')
         snapshot = AccountDB.backup_save_file
         def backup_with_sidecar(path):

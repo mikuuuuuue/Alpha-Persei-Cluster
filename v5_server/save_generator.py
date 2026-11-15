@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,24 @@ SLOTS = SERVER
 NOOB_END_TS = 2461420799  # Protocol deadline; completion policy closes it earlier.
 UID_MAX_DIGITS = 12
 SAVE_NAME_MAX_CHARS = 32
+
+_SAVE_CATALOG_TABLES = frozenset({
+    'active_draw_pool', 'affix_cfg', 'ai_characters', 'backhome_canteen_task',
+    'core_verification_affix_catalog', 'draw_hero_pool', 'draw_item', 'draw_pool',
+    'equip_cfg', 'equip_exp_curve', 'equip_material_cfg', 'equip_skill_cfg',
+    'fukubukuro_cfg', 'fukubukuro_cfg_select', 'game_level_setting',
+    'guild_boss', 'guild_boss_affix', 'guild_boss_prebuff', 'hero_break_cfg',
+    'hero_skill_element_cfg', 'illustrated_cfg', 'item_catalog', 'login_push',
+    'matrix_hero_attr', 'matrix_hero_standard', 'matrix_point_reward',
+    'momotalk_content', 'momotalk_hero', 'momotalk_message', 'monster_cosplay_cfg',
+    'mythic_final_cfg', 'recommend_equip', 'resource_stage', 'scene_pool_unopen',
+    'shop', 'shop_goods', 'sign_reward_cfg', 'skin_draw_pool_cfg',
+    'skin_pool_unopen', 'task_cfg', 'warchess_chapter',
+})
+IMPORT_STATIC_CATALOG_TABLES = _SAVE_CATALOG_TABLES - {
+    'active_draw_pool', 'ai_characters', 'guild_boss', 'guild_boss_affix',
+    'guild_boss_prebuff', 'login_push', 'warchess_chapter',
+}
 
 
 @lru_cache(maxsize=1)
@@ -127,20 +146,31 @@ def plan_save(options, *, uid=None):
                 support_mails=deepcopy(cfg['support_mails']) if options.support_mail else [])
 
 
-def _copy_catalogs(db, master):
-    path = Path(master).resolve(strict=True)
-    db.execute('ATTACH DATABASE ? AS master_db', (path.as_uri() + '?mode=ro',))
-    copied = []
+def copy_static_catalogs(db, master_path, tables):
+    """Copy only frozen catalog names; callers choose their audited subset."""
+    selected = frozenset(tables)
+    if not selected <= _SAVE_CATALOG_TABLES:
+        raise ValueError('静态目录包含未审核的表名')
+    path = Path(master_path).resolve(strict=True)
+    db.execute('ATTACH DATABASE ? AS catalog_source', (path.as_uri() + '?mode=ro',))
     try:
         with db.transaction():
-            tables = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-            for record in tables:
-                table = record['name']
-                quoted = '"' + table.replace('"', '""') + '"'
-                columns = [row['name'] for row in db.query(f'PRAGMA table_info({quoted})')]
-                if 'uid' not in columns and table not in ('hero_cfg', 'server_global_config'):
-                    db.execute(f'INSERT INTO {quoted} SELECT * FROM master_db.{quoted}')
-                    copied.append(table)
+            for table in sorted(selected):
+                columns = db.query(f'PRAGMA table_info("{table}")')
+                if not columns or any(row['name'] == 'uid' for row in columns):
+                    raise ValueError('静态目录结构无效：' + table)
+                db.execute(f'INSERT INTO "{table}" SELECT * FROM catalog_source."{table}"')
+    finally:
+        db.execute('DETACH DATABASE catalog_source')
+    return sorted(selected)
+
+
+def _copy_catalogs(db, master):
+    copied = copy_static_catalogs(db, master, _SAVE_CATALOG_TABLES)
+    path = Path(master).resolve(strict=True)
+    db.execute('ATTACH DATABASE ? AS master_db', (path.as_uri() + '?mode=ro',))
+    try:
+        with db.transaction():
             blueprints = json.loads((SERVER / 'data/hero_blueprint.json').read_text('utf-8'))
             for hid, info in blueprints.items():
                 db.execute('INSERT INTO hero_cfg(hero_id,unlock_star,name,race) VALUES(?,?,?,?)',
@@ -317,12 +347,17 @@ def _creation_lock(directory):
             stream.write(b'0')
             stream.flush()
         stream.seek(0)
-        if os.name == 'nt':
-            import msvcrt
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EAGAIN):
+                raise BlockingIOError('另一个进程正在建档，请稍后重试') from exc
+            raise
         try:
             yield
         finally:
@@ -341,7 +376,7 @@ def create_save(name, options=None, *, destination=None, master=None):
     with _creation_lock(SLOTS):
         if path.exists():
             raise FileExistsError('存档已存在，请换一个名称：' + path.name)
-        occupied = used_uids()
+        occupied = used_uids(SLOTS)
         uid = validate_uid(options.uid) if options.uid is not None else allocate_uid(occupied)
         if uid in occupied:
             raise ValueError('此UID已被本地存档使用，请换一个UID')

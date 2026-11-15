@@ -104,6 +104,7 @@ class DeleteBoundaries(unittest.TestCase):
         self.manager.registry_file = self.manager.server_dir/'slot_registry.json'
         self.manager.registry_file.write_text('{}', encoding='utf-8')
         self.manager._panel_requests = {}
+        self.manager._registry_depth = 0
         self.target = self.manager.server_dir/'待删 存档.db'
         self.target.write_bytes(b'fixture')
         mapping=self.manager.get_slot_mapping()
@@ -149,7 +150,7 @@ class DeleteBoundaries(unittest.TestCase):
         result,msg=self.manager.delete_slot_save(4,HOST)
         self.assertTrue(result,msg)
         self.assertEqual(order,['backup','recycle'])
-        save.assert_called_once_with({3:'account.db',5:'other.db'}, strict=True)
+        save.assert_called_once_with({3:'account.db',5:'other.db'})
         self.assertEqual(self.manager.get_session_state(HOST),slots.STATE_NORMAL)
 
     def test_backup_failure_never_recycles_or_releases_slot(self):

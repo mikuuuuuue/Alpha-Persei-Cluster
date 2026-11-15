@@ -1,6 +1,7 @@
 """Concurrent SDK HTTP refresh + actual gateway/codec, without player files."""
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+import tempfile
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -194,6 +195,28 @@ class SlotRefreshTests(unittest.TestCase):
             started = time.monotonic()
             self.assertEqual(self.manager.wait_for_gateway_refresh(HOST), 'idle')
             self.assertLess(time.monotonic()-started, 0.2)
+
+    def test_post_replace_registry_read_failure_preserves_original_bytes(self):
+        with tempfile.TemporaryDirectory(prefix='slot_registry_readback_') as folder:
+            manager = slots.SaveSlotManager(folder)
+            original_bytes = b'{"3":"old.db"}\n'
+            manager.registry_file.write_bytes(original_bytes)
+            read_count = 0
+            load_registry = manager._load_registry
+
+            def fail_first_readback():
+                nonlocal read_count
+                read_count += 1
+                if read_count == 1:
+                    raise OSError('isolated post-replace read failure')
+                return load_registry()
+
+            with patch.object(manager, '_load_registry', side_effect=fail_first_readback):
+                with self.assertRaisesRegex(OSError, 'post-replace read failure'):
+                    manager._save_registry({3: 'old.db', 4: 'new.db'})
+
+            self.assertEqual(read_count, 1)
+            self.assertEqual(manager.registry_file.read_bytes(), original_bytes)
 
     def test_followup_wait_is_bounded_without_gateway(self):
         peer = '192.168.0.104'

@@ -17,8 +17,8 @@ import zlib
 
 
 def load_login_push(db):
-    """读 login_push 表：[(seq, cmd, header, payload, dynamic, payload_json), ...] 按 seq 序（登录流截止于 10201，seq<=192）。"""
-    rows = db.query("SELECT seq, cmd, header, payload, dynamic, payload_json FROM login_push WHERE seq <= 192 ORDER BY seq")
+    """Read ordered login frames through the first 10201 end marker."""
+    rows = db.query("SELECT seq, cmd, header, payload, dynamic, payload_json FROM login_push ORDER BY seq")
     out = []
     for r in rows:
         h, p, pj = r["header"], r["payload"], r.get("payload_json")
@@ -27,6 +27,8 @@ def load_login_push(db):
         if isinstance(p, str):
             p = p.encode("latin1", errors="ignore")
         out.append((r["seq"], r["cmd"], bytes(h), bytes(p), r["dynamic"] or 0, pj))
+        if r['cmd'] == 10201:
+            break
     return out
 
 
