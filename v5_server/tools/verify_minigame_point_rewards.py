@@ -10,7 +10,6 @@ import core
 import generator
 from inventory_service import InventoryService
 from account_db import AccountDB
-from save_generator import copy_static_catalogs
 import minigame_service as mini
 import minigame_point_service as point
 import operations
@@ -18,8 +17,8 @@ import multiplayer_policy
 
 # Runtime fixtures use the shipped static catalog. Native export audits remain
 # separate checks and still require their original Lua sources.
-with closing(AccountDB.new_save_workspace()) as catalog_db:
-    copy_static_catalogs(catalog_db, Path(__file__).resolve().parents[1] / 'account.db', ('item_catalog',))
+with closing(AccountDB.open_existing(
+        Path(__file__).resolve().parents[1] / 'account.db', readonly=True)) as catalog_db:
     usable = json.loads((Path(__file__).resolve().parents[1] / 'item_usable_cfg.json').read_text('utf-8'))
     ITEM_TYPES = {row['id']: (row['type'], usable.get(str(row['id']), {}).get('sub_type', 0))
                   for row in catalog_db.query('SELECT id,type FROM item_catalog')}
