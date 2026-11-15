@@ -1,24 +1,26 @@
-"""A151: memory-only Core/Inventory/codec checks against the current public Lua roster."""
+"""A151: memory-only Core/Inventory/codec checks against the packaged roster.
+
+Native Lua comparison fails explicitly when its source or parser is absent.
+"""
 import json
 from collections import Counter
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 from verify_report_small_fixes import MemoryTests, UID
-from extract_autochess_cfg import parse_lua_file
 import codec
 import generator
 import illustrated_listener as illustrated
 
 ROOT = Path(__file__).resolve().parents[2]
-HEROES = parse_lua_file(ROOT / 'decompiled_v2/x64/game/config/herocfg.lua')
-PUBLIC = {hid: row['race'] for hid, row in HEROES.items()
-          if isinstance(hid, int) and row.get('private') == 0}
-SETTINGS = parse_lua_file(ROOT / 'decompiled_v2/x64/game/config/gamesetting.lua')
-STEP = SETTINGS['hero_race_collect_each_tier']['value'][0]
-REWARD = dict(SETTINGS['hero_race_collect_reward_list']['value'])
+RACE_CFG = illustrated._get_hero_race_cfg()
+PUBLIC = {int(hero_id): int(race) for hero_id, race in RACE_CFG['public_hero_races'].items()}
+ALL_HERO_RACES = {int(hero_id): int(race) for hero_id, race in
+                  json.loads((ROOT / 'v5_server/hero_race_map.json').read_text('utf-8-sig')).items()}
+STEP = min(row['need'] for row in RACE_CFG['tasks'].values())
+REWARD = {reward['id']: reward['num'] for reward in next(iter(RACE_CFG['tasks'].values()))['reward']}
 LIMITS = Counter(PUBLIC.values())
-TIERS = {race: list(range(STEP, count + 1, STEP)) for race, count in LIMITS.items()}
+TIERS = {int(race): [task['need'] for task in tasks] for race, tasks in RACE_CFG['by_race'].items()}
 MISSING = {2: [12], 4: [12, 15], 5: [12, 15], 9: [9, 12]}
 
 
@@ -56,13 +58,23 @@ class RaceCollectTests(MemoryTests):
         self.assertEqual(self.snapshot(), before)
 
     def test_exported_roster_and_tiers_match_current_lua(self):
-        cfg = illustrated._get_hero_race_cfg()
+        native_dir = ROOT / 'decompiled_v2/x64/game/config'
+        parser = ROOT / 'v5_server/tools/extract_autochess_cfg.py'
+        if not parser.is_file() or not (native_dir / 'herocfg.lua').is_file() or not (native_dir / 'gamesetting.lua').is_file():
+            self.fail('native comparison blocked: decompiled Lua files or extract_autochess_cfg.py are absent')
+        from extract_autochess_cfg import parse_lua_file
+        heroes = parse_lua_file(native_dir / 'herocfg.lua')
+        public = {hid: row['race'] for hid, row in heroes.items()
+                  if isinstance(hid, int) and row.get('private') == 0}
+        settings = parse_lua_file(native_dir / 'gamesetting.lua')
+        step = settings['hero_race_collect_each_tier']['value'][0]
+        reward = dict(settings['hero_race_collect_reward_list']['value'])
         self.assertEqual(len(PUBLIC), 84)
-        self.assertEqual(cfg.get('public_hero_races'), {str(h): r for h, r in PUBLIC.items()})
-        self.assertEqual({int(r): [t['need'] for t in tasks] for r, tasks in cfg['by_race'].items()}, TIERS)
+        self.assertEqual({str(h): r for h, r in public.items()}, RACE_CFG.get('public_hero_races'))
+        self.assertEqual(step, STEP)
+        self.assertEqual({race: list(range(step, count + 1, step)) for race, count in Counter(public.values()).items()}, TIERS)
         self.assertEqual(sum(len(v) for v in TIERS.values()), 26)
-        for task in cfg['tasks'].values():
-            self.assertEqual({v['id']: v['num'] for v in task['reward']}, REWARD)
+        self.assertEqual(reward, REWARD)
 
     def test_seven_missing_tiers_reject_before_threshold_then_grant(self):
         for race, needs in MISSING.items():
@@ -117,7 +129,7 @@ class RaceCollectTests(MemoryTests):
     def test_locked_and_private_rows_do_not_count_as_public_owned(self):
         ids = self.own(1, 2)
         self.db.execute('INSERT INTO hero(uid,id,unlock,clear_times) VALUES(?,?,0,10)', (UID, ids[2]))
-        private = next(h for h, row in HEROES.items() if isinstance(h, int) and row.get('private') != 0 and row['race'] == 1)
+        private = next(h for h, race in ALL_HERO_RACES.items() if h not in PUBLIC and race == 1)
         self.db.execute('INSERT INTO hero(uid,id,unlock) VALUES(?,?,1)', (UID, private))
         self.assertEqual(illustrated.get_hero_race_counts(self.db, UID).get(1), 2)
         self.reject([dict(race_type=1, cnt_list=[3])], 2005)

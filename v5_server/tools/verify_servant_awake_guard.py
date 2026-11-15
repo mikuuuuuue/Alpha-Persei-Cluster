@@ -9,7 +9,6 @@ from unittest.mock import patch
 from verify_report_small_fixes import MemoryTests, UID
 import codec
 import servant_service as service
-from export_servant_awake_cfg import build_config
 
 
 class AwakeTests(MemoryTests):
@@ -152,6 +151,12 @@ class AwakeTests(MemoryTests):
             self.assertEqual(self.merge()[0]['result'], 0)
 
     def test_export_and_release_contract_match_current_lua(self):
+        try:
+            from export_servant_awake_cfg import build_config
+        except ModuleNotFoundError as exc:
+            if exc.name == 'extract_autochess_cfg':
+                self.fail('native comparison blocked: extract_autochess_cfg.py and decompiled Lua sources are absent')
+            raise
         self.assertEqual(build_config(), service.SERVANT_AWAKE_CFG)
         root = Path(service.__file__).parent
         contract = json.loads((root / 'tools/release_contract.json').read_text(encoding='utf-8'))

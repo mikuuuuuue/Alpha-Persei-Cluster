@@ -1,103 +1,133 @@
-"""A03 hero growth: actual services/SQLite/codec, no real accounts or client.
+"""A03 hero growth behavior over the real in-memory AccountDB/Core/codec.
 
-Level/break metadata come from the current Lua files; skill costs are actual
-source constants. Task threshold and relation gates are bounded fixtures, not
-assertions about production eligibility. Lua consumption is a finite projection.
+Growth metadata uses packaged runtime exports. Native Lua comparisons remain
+blocked because the decompiled Lua source and its parser are absent.
 """
 import json
-from contextlib import nullcontext
+import sqlite3
 from types import MethodType, SimpleNamespace as NS
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-import test_cost_fallback_boundary as cost_fixture
-from test_entity_rollback_notifications import selected, constants
-from test_commit_recovery import deny_once
-from extract_autochess_cfg import parse_lua_file
+from test_commit_recovery import deny_once, selected
+from verify_report_small_fixes import MemoryTests, UID
+import codec
+import core
+import operations
+import middleware as mw
+import hero_codec
+import hero_service
+import generator
+import achievement_service
+from event_bus import EventBus, Events
+import event_bus
 
-ROOT = cost_fixture.boundary.ROOT
-CODEC = cost_fixture.boundary.codec
+ROOT = Path(__file__).resolve().parents[1]
+CODEC = codec
 
 
-class HeroResponseTests(unittest.TestCase):
-    ctx = cost_fixture.CostFallbackTests.ctx
-    frames = cost_fixture.CostFallbackTests.frames
+class HeroResponseTests(MemoryTests):
+    def ctx(self):
+        return self.conn.to_handler_ctx()
+
+    def frames(self, response, cmd):
+        return [codec.decode(frame['payload'], 'sc_' + str(cmd)) for frame in response.frames if frame['sc'] == cmd]
 
     @classmethod
     def setUpClass(cls):
-        lua = ROOT.parent / "decompiled_v2/x64/game/config"
-        cls.hero_cfg = parse_lua_file(lua / "herocfg.lua")[1084]
-        cls.break_cfg = parse_lua_file(lua / "herobreakcfg.lua")
-        cls.level_cfg = parse_lua_file(lua / "gamelevelsetting.lua")
+        source = sqlite3.connect('file:' + (ROOT / 'account.db').as_posix() + '?mode=ro', uri=True)
+        source.row_factory = sqlite3.Row
+        try:
+            breaks = [dict(row) for row in source.execute('SELECT * FROM hero_break_cfg ORDER BY id')]
+            levels = [dict(row) for row in source.execute(
+                'SELECT level,hero_exp_need FROM game_level_setting ORDER BY level')]
+        finally:
+            source.close()
+        for row in breaks:
+            row['cost'] = json.loads(row.get('cost') or '[]')
+        cls.hero_cfg = json.loads((ROOT / 'data/hero_blueprint.json').read_text('utf-8-sig'))['1084']
+        cls.break_cfg = {row['id']: row for row in breaks}
+        cls.level_cfg = {row['level']: dict(id=row['level'], hero_level_exp1=row['hero_exp_need']) for row in levels}
 
     def setUp(self):
-        cost_fixture.CostFallbackTests.setUp(self)
+        super().setUp()
+        self.sql = self.db._conn()
+        handlers_patch = patch.object(EventBus, "_handlers", {})
+        handlers_patch.start()
+        self.addCleanup(handlers_patch.stop)
+        self.bus = EventBus()
+        event_bus_patch = patch.object(event_bus, "bus", self.bus)
+        event_bus_patch.start()
+        self.addCleanup(event_bus_patch.stop)
+        achievement_bus_patch = patch.object(achievement_service, "bus", self.bus)
+        achievement_bus_patch.start()
+        self.addCleanup(achievement_bus_patch.stop)
+        self.pushes = []
+        self.env = dict(vars(operations))
+        self.env.update(vars(core))
+        self.env.update(vars(mw))
+        self.env.update(dict(OPERATIONS=core.OPERATIONS, Events=Events, bus=self.bus,
+                             _mw=mw,
+                             CoreRequest=core.CoreRequest, DownFrame=mw.DownFrame))
+        self.encode = codec.encode
+        self.env.update(level_to_exp=hero_service.level_to_exp,
+                        exp_to_level=hero_service.exp_to_level)
+        selected("hero_service.py", {"SKILL_COSTS"}, self.env)
+        self.db.upsert('hero', 42, hero_codec.initial_hero_row(1084, 100), keys=('uid','id'))
         # The current Core wraps dispatch in the connection's version context.
         # This SQL fixture has no channel/version selection under test.
-        self.imports['res_version_manager'] = NS(connection_version=lambda version: nullcontext())
-        self.imports['multiplayer_policy'] = NS(reject_request=lambda request, ctx: None)
-        self.imports['new_player_service'] = NS(enabled=lambda db, uid: False)
-        selected('achievement_service.py', {'_sync_achievement_needs'}, self.env, 'AchievementService')
-        achievement = self.env['AchievementService'].get_instance()
-        achievement._sync_achievement_needs = MethodType(self.env['_sync_achievement_needs'], achievement)
-        self.sql.executescript("""
-ALTER TABLE hero ADD COLUMN exp INTEGER DEFAULT 0;
-ALTER TABLE hero ADD COLUMN update_ts INTEGER DEFAULT 0;
-ALTER TABLE hero ADD COLUMN relation_net TEXT DEFAULT '[]';
-CREATE UNIQUE INDEX material_key ON material(uid,id);
-CREATE TABLE hero_cfg(hero_id INTEGER,race INTEGER);
-CREATE TABLE game_level_setting(level INTEGER,hero_exp_need INTEGER);
-CREATE TABLE hero_break_cfg(id INTEGER,race INTEGER,break_times INTEGER,max_level INTEGER,cost_gold INTEGER,cost TEXT,user_level INTEGER);
-CREATE TABLE task_cfg(task_id INTEGER,condition INTEGER,need INTEGER,additional_parameter TEXT,task_type INTEGER,activity_id INTEGER);
-CREATE TABLE task(uid INTEGER,task_id INTEGER,progress INTEGER,claimed_ts INTEGER DEFAULT 0,
- complete_flag INTEGER DEFAULT 0,task_type INTEGER DEFAULT 0,expired_ts INTEGER DEFAULT 0,PRIMARY KEY(uid,task_id));
-CREATE TABLE claim_ledger(uid INTEGER,kind TEXT,key_id INTEGER);
-INSERT INTO task_cfg VALUES(900008,8,99,'[]',6,0);
-INSERT INTO task(uid,task_id,progress) VALUES(42,900008,0);
-UPDATE currency SET num=100000 WHERE id=2;
-""")
         race = self.hero_cfg["race"]
-        self.db.execute("INSERT INTO hero_cfg VALUES(1084,?)", (race,))
+        self.db.execute("INSERT OR REPLACE INTO hero_cfg(hero_id,unlock_star,name,race) VALUES(1084,?,?,?)",
+                        (self.hero_cfg['unlock_star'], self.hero_cfg['name'], race))
+        self.db.execute('DELETE FROM hero_break_cfg')
         for item in self.break_cfg.values():
             if isinstance(item, dict) and item.get("race") == race:
-                self.db.execute("INSERT INTO hero_break_cfg VALUES(?,?,?,?,?,?,?)",
-                    (item["id"], race, item["break_times"], item["max_level"], item.get("cost_gold", 0),
-                     json.dumps(item.get("cost") or []), item["user_level"]))
+                self.db.execute("INSERT INTO hero_break_cfg(id,race,break_times,user_level,max_level,cost_gold,cost) VALUES(?,?,?,?,?,?,?)",
+                    (item["id"], race, item["break_times"], item["user_level"], item["max_level"],
+                     item.get("cost_gold", 0), json.dumps(item.get("cost") or [])))
+        self.db.execute('DELETE FROM game_level_setting')
         self.db.execute("UPDATE users SET level=?", (max(c["user_level"] for c in self.break_cfg.values() if isinstance(c, dict) and "user_level" in c),))
         self.curve = {v["id"]: v["hero_level_exp1"] for v in self.level_cfg.values()
                       if isinstance(v, dict) and "hero_level_exp1" in v}
         for level, exp in self.curve.items():
-            self.db.execute("INSERT INTO game_level_setting VALUES(?,?)", (level, exp))
+            self.db.execute("INSERT INTO game_level_setting(level,hero_exp_need) VALUES(?,?)", (level, exp))
+        self.db.execute("INSERT OR REPLACE INTO task_cfg(task_id,name,task_type,condition,need,activity_id) VALUES(900008,'probe',6,8,99,0)")
+        self.db.execute("INSERT OR REPLACE INTO task(uid,task_id,progress,task_type) VALUES(42,900008,0,6)")
+        self.db.set_currency(42, 2, 100000)
         self.skills = json.loads((ROOT / "hero_skills_cfg.json").read_text("utf-8-sig"))["1084"]
         self.db.execute("UPDATE hero SET skill_list=?", (json.dumps([[sid, 1] for sid in self.skills]),))
         mats = {40101, 40102, 40103, 40104, 40301}
         mats.update(int(iid) for item in self.break_cfg.values() if isinstance(item, dict) and item.get("race") == race
                     for iid, _ in (item.get("cost") or []))
+        static = sqlite3.connect('file:' + (ROOT / 'account.db').as_posix() + '?mode=ro', uri=True)
+        try:
+            catalog = {row[0]: row for row in static.execute(
+                'SELECT id,name,type,rare,category FROM item_catalog WHERE id IN (%s)' %
+                ','.join('?' for _ in mats), tuple(mats))}
+        finally:
+            static.close()
         for iid in mats:
             self.db.execute("INSERT OR IGNORE INTO material(uid,id,num) VALUES(42,?,1000)", (iid,))
             self.db.execute("UPDATE material SET num=1000 WHERE id=?", (iid,))
-            if not self.db.query("SELECT type FROM item_catalog WHERE id=?", (iid,)):
-                self.db.execute("INSERT INTO item_catalog VALUES(?,4)", (iid,))
-        constants("hero_service.py", {"EXP_ITEMS", "EXP_ITEM_VALUES", "SKILL_MAX_LV", "SKILL_COSTS"}, self.env)
-        selected("hero_service.py", {"level_to_exp", "exp_to_level", "material_give_back", "get_hero_break_max_level",
-                                    "_hero_growth_int", "_hero_break_context", "_hero_break_costs"}, self.env)
-        for name in ("add_hero_exp", "break_hero", "upgrade_skill", "_add_item", "build_hero_refresh_frames"):
-            selected("hero_service.py", {name}, self.env, "HeroService")
-            setattr(self.hero, name, MethodType(self.env[name], self.hero))
-        self.imports["hero_service"] = NS(HeroService=NS(get_instance=lambda **kw: self.hero))
-        selected("operations.py", {"HeroAddExpOp", "HeroBreakOp", "SkillUpOp"}, self.env)
-        self.env["OPERATIONS"].update({cmd: self.env[name]() for cmd, name in
-            ((14014, "HeroAddExpOp"), (14036, "HeroBreakOp"), (14030, "SkillUpOp"))})
+            if iid in catalog:
+                self.db.execute("INSERT OR REPLACE INTO item_catalog(id,name,type,rare,category) VALUES(?,?,?,?,?)",
+                                catalog[iid])
         selected("task_listener.py", {"_trigger_task_condition", "_push_task_diff", "on_main_interact"}, self.env)
         self.bus.register(self.env["Events"].MAIN_INTERACT, self.env["on_main_interact"])
-        selected("achievement_service.py", {"_on_hero_upgrade"}, self.env)
-        self.bus.register(self.env["Events"].HERO_UPGRADE, self.env["_on_hero_upgrade"])
+        self.bus.register(self.env["Events"].HERO_UPGRADE, achievement_service._on_hero_upgrade)
+        pulse = patch('lazy_timer.lazy_timer.pulse', side_effect=lambda ctx, uid: getattr(self, 'pulse', lambda *_: None)(ctx, uid))
+        pulse.start(); self.addCleanup(pulse.stop)
 
     def request(self, cmd=14014, data=None):
         if data is None:
             data = {14014: {"id": 1084, "item_list": [{"id": 40101, "num": 1}]},
                     14036: {"hero_id": 1084},
                     14030: {"hero_id": 1084, "skill_id": self.skills[0], "num": 1}}[cmd]
-        return self.core.dispatch(self.env["CoreRequest"](cmd, data, uid=42), self.conn)
+        encoder = self.encode
+        self.conn.codec_encode = encoder
+        self.conn.to_handler_ctx().codec_encode = encoder
+        return self.core.dispatch(self.env["CoreRequest"](cmd, CODEC.encode("cs_" + str(cmd), data), uid=42), self.conn)
 
     def snapshot(self):
         return {table: self.db.query("SELECT * FROM " + table + " ORDER BY rowid")
@@ -185,12 +215,18 @@ UPDATE currency SET num=100000 WHERE id=2;
                                 return b""
                             raise ValueError("fixture asset diff encoding failure")
                         return CODEC.encode(name, data)
-                    self.env["encode"] = encode
-                    self.assert_failure(self.request(cmd), cmd, before)
-        self.env["encode"] = CODEC.encode
+                    original = generator.gen_payload
+                    def generate(sc, *args, **kwargs):
+                        if sc == 17023:
+                            if empty:
+                                return b""
+                            raise ValueError("fixture asset diff encoding failure")
+                        return original(sc, *args, **kwargs)
+                    with patch.object(generator, "gen_payload", side_effect=generate):
+                        self.assert_failure(self.request(cmd), cmd, before)
+        self.encode = CODEC.encode
 
     def test_required_hero_refresh_exception_or_missing_is_not_swallowed(self):
-        original = self.imports["hero_codec"]
         for cmd in (14014, 14036):
             for empty in (False, True):
                 with self.subTest(cmd=cmd, empty=empty):
@@ -200,9 +236,8 @@ UPDATE currency SET num=100000 WHERE id=2;
                         if empty:
                             return None
                         raise ValueError("fixture hero refresh encoding failure")
-                    self.imports["hero_codec"] = NS(build_hero_14007_frame=build)
-                    self.assert_failure(self.request(cmd), cmd, before)
-        self.imports["hero_codec"] = original
+                    with patch.object(hero_codec, "build_hero_14007_frame", side_effect=build):
+                        self.assert_failure(self.request(cmd), cmd, before)
 
     def test_commit_denial_discards_prepared_frames_and_retry_applies_once(self):
         for cmd in (14014, 14036, 14030):
@@ -265,7 +300,7 @@ UPDATE currency SET num=100000 WHERE id=2;
     def test_prior_timer_refresh_precedes_skill_ack_without_mutating_prefix(self):
         prior = []
         def pulse(ctx, uid):
-            frame = self.imports["hero_codec"].build_hero_14007_frame(self.db, uid, 1084)
+            frame = hero_codec.build_hero_14007_frame(self.db, uid, 1084)
             frame.flag, frame.srv = 1, 77
             prior.append(frame)
             ctx.append_frame(frame)
@@ -287,8 +322,8 @@ UPDATE currency SET num=100000 WHERE id=2;
         before = self.snapshot()
         prior = self.env["DownFrame"](10701, CODEC.encode("sc_10701", {"timestamp": 123}), flag=1, srv=77)
         self.pulse = lambda ctx, uid: ctx.append_frame(prior)
-        self.env["_mw"].get_skeleton = lambda cmd: {"frames": [{"sc": 18002, "hex": "invalid"}]}
-        response = self.request(14030)
+        with patch.object(mw, "get_skeleton", return_value={"frames": [{"sc": 18002, "hex": "invalid"}]}):
+            response = self.request(14030)
         self.assert_failure(response, 14030, before)
         self.assertEqual(response.scs, [10701, 14031])
         self.assertEqual((response.frames[0]["flag"], response.frames[0]["srv"]), (1, 77))

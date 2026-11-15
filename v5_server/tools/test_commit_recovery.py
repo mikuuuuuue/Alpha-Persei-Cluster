@@ -82,13 +82,27 @@ def deny_once(c, verb):
     c.set_authorizer(authorize)
 
 
-def selected(filename, names, env):
+def selected(filename, names, env, class_name=None):
     nodes = ast.parse((ROOT / filename).read_text("utf-8-sig")).body
-    picked = [n for n in nodes if isinstance(n, (ast.ClassDef, ast.FunctionDef))
-              and n.name in names]
-    assert {n.name for n in picked} == set(names)
+    if class_name:
+        owner = next(n for n in nodes if isinstance(n, ast.ClassDef) and n.name == class_name)
+        picked = [n for n in owner.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and n.name in names]
+    else:
+        picked = [n for n in nodes if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                  and n.name in names]
+    found = {n.name for n in picked}
+    assignments = [n for n in nodes if isinstance(n, (ast.Assign, ast.AnnAssign))
+                   and any(isinstance(target, ast.Name) and target.id in names
+                           for target in (n.targets if isinstance(n, ast.Assign) else [n.target]))]
+    picked.extend(assignments)
+    found.update(target.id for n in assignments
+                 for target in (n.targets if isinstance(n, ast.Assign) else [n.target])
+                 if isinstance(target, ast.Name) and target.id in names)
+    assert found == set(names)
     for n in picked:
-        n.decorator_list = []
+        if hasattr(n, "decorator_list"):
+            n.decorator_list = []
     exec(compile(ast.Module(body=picked, type_ignores=[]), filename, "exec"), env)
 
 

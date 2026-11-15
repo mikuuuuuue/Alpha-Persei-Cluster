@@ -129,6 +129,35 @@ class OverflowTests(UseTests):
         drops,_=self.drops([[MAT,5]],[[2,10],[1,1]])
         self.assertEqual(drops,{MAT:2,2:30,1:3})
 
+    def test_repeated_source_rows_subtract_surplus_once_per_conversion(self):
+        exchange=copy.deepcopy(inv._get_exchange_cfg())
+        exchange['90001']=dict(limit=1,num_exchange_item=[[2,20],[1,2]])
+        usable=copy.deepcopy(inv._get_item_usable_cfg())
+        usable['30009'].update(sub_type=501,param=[[90001,2],[90001,2]])
+        self.db.execute('INSERT INTO chat_sticker(uid,emoji_id) VALUES(?,138)',(UID,))
+        before=(self.balance(2),self.balance(1))
+        with patch.object(inv,'_ITEM_USABLE_CFG_CACHE',usable),patch.object(inv,'_ITEM_EXCHANGE_CFG_CACHE',exchange):
+            packet,response=self.use([entry(30009)])
+        self.assertEqual(packet['result'],0)
+        self.assertEqual(packet['drop_list'],[dict(id=2,num=80,time_valid=0),dict(id=1,num=8,time_valid=0)])
+        self.assertEqual((self.balance(2)-before[0],self.balance(1)-before[1]),(80,8))
+        self.assertEqual(self.balance(90001),0)
+        self.assertNotIn(12039,response.scs)
+
+    def test_box_use_retains_first_sticker_when_two_conversion_targets_exist(self):
+        exchange=copy.deepcopy(inv._get_exchange_cfg())
+        exchange['90001']=dict(limit=1,num_exchange_item=[[2,20],[1,2]])
+        usable=copy.deepcopy(inv._get_item_usable_cfg())
+        usable['30009'].update(sub_type=501,param=[[90001,2],[90001,2]])
+        before=(self.balance(2),self.balance(1))
+        with patch.object(inv,'_ITEM_USABLE_CFG_CACHE',usable),patch.object(inv,'_ITEM_EXCHANGE_CFG_CACHE',exchange):
+            packet,response=self.use([entry(30009)])
+        self.assertEqual(packet['result'],0)
+        self.assertEqual(packet['drop_list'],[dict(id=90001,num=1,time_valid=0),dict(id=2,num=60,time_valid=0),dict(id=1,num=6,time_valid=0)])
+        self.assertEqual((self.balance(90001),self.balance(2)-before[0],self.balance(1)-before[1]),(1,60,6))
+        self.assertEqual(self.db.query('SELECT emoji_id FROM chat_sticker WHERE uid=?',(UID,)),[dict(emoji_id=138)])
+        self.assertLess(response.scs.index(12039),response.scs.index(17013))
+
 
 if __name__=='__main__':
     before='--before' in sys.argv
@@ -141,8 +170,5 @@ if __name__=='__main__':
         Inventory.grant_items=classmethod(namespace['grant_items'])
     names=[name for name in OverflowTests.__dict__ if name.startswith('test_')] if before else unittest.defaultTestLoader.getTestCaseNames(OverflowTests)
     suite=unittest.TestSuite(OverflowTests(name) for name in names)
-    if not before:
-        from verify_all_cosmetic_mail import CosmeticTests
-        suite.addTests(CosmeticTests(name) for name in ('test_repeated_source_rows_subtract_surplus_once_per_conversion','test_box_use_retains_first_sticker_when_two_conversion_targets_exist'))
     result=unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(not result.wasSuccessful())
