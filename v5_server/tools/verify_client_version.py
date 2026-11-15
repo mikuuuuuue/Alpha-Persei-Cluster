@@ -80,11 +80,15 @@ class VersionChecks(unittest.TestCase):
 
     def test_sdk_login_uses_channel_config_not_latest_other_client(self):
         self.apply('ios','229')
+        owner_uid = 261113200139
+        self.stack.enter_context(patch.object(generator, 'DEFAULT_UID', owner_uid))
         fake_db = SimpleNamespace(get_system_config=lambda *args:'1')
         app = net.build_https_app(SimpleNamespace(db=fake_db),host_ip='127.0.0.1')
         client = app.test_client()
         for platform, channel in (('pc',9),('ios',7),('android',7),('ios',7)):
             response = client.post('/mix-sdk-api/pass/user/login',json={'platformType':platform,'channelId':channel}).get_json()
+            self.assertIs(type(response['data']['id']), int)
+            self.assertEqual(response['data']['id'], owner_uid)
             self.assertEqual(response['data']['channelId'],channel)
             self.assertEqual(response['data']['enablePay'],platform=='ios')
             config = client.post('/config',json={'platformType':platform,'channelId':channel}).get_json()

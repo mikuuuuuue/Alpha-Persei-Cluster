@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-06",
+  "updated_at": "2026-11-15",
   "provenance": {
     "index": "v5_server/docs/health_audit_index.md",
     "index_sha256": "dcfb5a2be0c4b28efe54eee8c3f8eeae777626dd8610725595a6a4fd67ba2985",
@@ -11,6 +11,7 @@
     "historical": "历史待复核",
     "queued": "已排队待定位",
     "source_verified": "源码已修复/脚本通过；待专项实机",
+    "client_verified": "专项实机通过；范围见票内记录",
     "partial": "部分完成，保留后续",
     "evidence_needed": "证据或配置待补"
   },
@@ -2263,15 +2264,25 @@
     {
       "id": "MAINLINE-SAVE-TREE-20261022",
       "title": "新存档系统设计待办：主线关卡按前驱与分支解锁",
-      "status": "queued",
+      "status": "client_verified",
       "commits": [],
-      "report": "v5_server/docs/mainline_save_design_backlog.md",
-      "summary": "用户记忆中所有章节关卡均开启，应线性推一关开一关、分支点开两关。按用户要求先记录，低优先级，留待全新存档系统设计；尚未核实根因。",
+      "report": "docs/plans/2026-11-13-client-acceptance.md",
+      "summary": "2026-11-15 本机PC332的B3实机通过：同场初始化、三档前驱对照及方案A分支均符合配置。fresh自然引导后取样，skip_prologue原始1级门槛已记录，补经验到5级后取样；branch_pending完成1030103后两个后继均可进。四份起始档未改，本轮未改生产代码。",
       "steps": [
         {
           "date": "2026-10-22",
           "step": "用户反馈与延期记录",
           "result": "本轮仅记录，不改变现有开放策略、不重置存档。设计时区分可见/解锁/完成/分支选择及旧档迁移、进度预设与回溯。"
+        },
+        {
+          "date": "2026-11-15",
+          "step": "B3 PC 332 同场部分验收及停线",
+          "result": "槽位3/UID261113200139/70级主界面通过；quick_start以可见第六章1010601/1010602验证可进与前驱锁定；fresh自然完成强制序章后以1030101/1030102验证。skip_prologue原始1级7预通，回放1030007结算后仍1级，首章5级门槛及配对待续；branch_pending保持方案A、未启动。5小时额度剩4%触发停线，未重置；hosts及启动器配置恢复，18项保护基线一致、36项端口绑定通过，原有主库WAL缺开工基线不能宣称完整恢复。证据selftest_tmp/priority-repair/b3-progress-20261115/client-session-01；旧票未关闭。"
+        },
+        {
+          "date": "2026-11-15",
+          "step": "B3接续完成：跳序章和方案A分支",
+          "result": "用户要求继续，额度回读100%/58%。查明主线复通不发经验；在skip_prologue运行副本用既有经验发放路径补26经验至5级，保留7关进度。用户确认1030102原先锁定、1030101可进，结束6级8关。branch_pending原始70级39关，三段剧情依次结算；用户确认1030104/1030108先均锁定，1030103完成后均可进，两关进场日志齐全。冷读和编码章节列表均保留两后继，结束70级43关。20项接续保护基线、四起始档哈希、四结束库完整性、36项端口绑定、进程0及hosts原字节恢复通过。午后主库WAL开工基线缺证独立保留。证据client-session-01/resume-01；本票PC332实机完成，未改生产代码。"
         }
       ]
     },
