@@ -90,6 +90,15 @@ def payload(mains, tasks):
 
 
 def quest_payload(db, uid):
+    if db.get_system_config('save.profile') == 'capture_import_v1':
+        rows = db.query('SELECT main_quest_id,status,expired_ts FROM qworld_quest WHERE uid=? ORDER BY main_quest_id', (uid,))
+        tasks = {}
+        for row in db.query('SELECT main_quest_id,task_id,status,progress FROM qworld_quest_task WHERE uid=? '
+                            'ORDER BY main_quest_id,task_id', (uid,)):
+            tasks.setdefault(row['main_quest_id'], []).append(dict(id=row['task_id'], progress=row['progress'],
+                                                                   status=row['status']))
+        return dict(quest_list=[dict(id=row['main_quest_id'], status=row['status'],
+            task_list=tasks.get(row['main_quest_id'], []), expired_timestamp=row['expired_ts']) for row in rows])
     mains, tasks = read(db, uid)
     advance(db, uid, mains, tasks)
     return payload(mains, tasks)
@@ -98,7 +107,7 @@ def quest_payload(db, uid):
 def function_payload(db, uid):
     rows = db.query('SELECT value_json FROM ops_common WHERE uid=? AND kind=? AND item_id=?', (uid, KIND, str(ACTIVITY)))
     values = json.loads(rows[0]['value_json']) if rows else []
-    require(isinstance(values, list) and all(type(i) is int and i in FUNCTIONS for i in values), '箱庭功能记录损坏')
+    require(isinstance(values, list) and all(type(i) is int for i in values), '箱庭功能记录损坏')
     return dict(sys_id_list=sorted(set(values)))
 
 

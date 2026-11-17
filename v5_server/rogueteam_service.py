@@ -3917,6 +3917,15 @@ class RogueTeamService:
             reward_list = json.loads(user_row.get("rewarded_list_json") or "[]")
         except Exception:
             reward_list = []
+        fetters = dict(
+            activity_id=RogueTeamConst.FETTERS_ACTIVITY_ID,
+            fetters_id=int(time.time() // (7 * 86400)) % 4 + 1,
+            next_timestamps=(int(time.time() // (7 * 86400)) + 1) * 7 * 86400)
+        captured = db.get(
+            "ops_common", uid, "AND kind='capture_rogueteam_fetters' AND item_id=?",
+            (str(template_id),))
+        if captured:
+            fetters.update(json.loads(captured.get("value_json") or "{}"))
         # 局内进行中才回填 difficult，否则入口显示"开始推演"
         session = db.get("rogueteam_session", uid, "AND template_id=?", (template_id,))
         in_game = bool(session and session.get("in_game", 0))
@@ -3924,10 +3933,7 @@ class RogueTeamService:
         out.update({
             "point": int(user_row.get("point", 0) or 0),
             "reward_list": [int(r) for r in reward_list if str(r).isdigit() or isinstance(r, int)],
-            "activity_id": RogueTeamConst.FETTERS_ACTIVITY_ID,
-            # 羁绊按周轮换：1~4 循环，客户端按 fetters_id 显示对应效果
-            "fetters_id": int(time.time() // (7 * 86400)) % 4 + 1,
-            "next_timestamps": (int(time.time() // (7 * 86400)) + 1) * 7 * 86400
+            **fetters
         })
         return out
 

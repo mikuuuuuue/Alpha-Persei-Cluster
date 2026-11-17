@@ -4,7 +4,7 @@
 
 ## 当前结果与下一步
 
-2026-11-15 状态：B0-S01 后置，B1 已收尾，N-2 维持 filed。B2、B3 的本机 PC 332 实机核对已完成。B3 同场初始化、三档前驱对照及方案 A 分支均通过，旧票已回填 `client_verified`。服务已停，临时 hosts 和启动器配置已恢复；午后主库 WAL 基线缺证独立保留。[本轮结果](2026-11-13-client-acceptance.md#b3-同场实机2026-11-15)
+2026-11-17 晚间状态：G 已发布 `账号恢复_1117_补充`，槽位 8、UID `261117212902`。6 封普通邮件和 3 封收藏邮件正文齐全，另补入 73 项章节收藏、440 项红点及已核实的日计数。`43001` 已在隔离候选闭合，候选为 170 帧、103 个协议和 54 个未闭合项；发布档仍为 169 帧、102 个协议和 55 个未闭合项。当前没有已确认的必需补抓项，抽卡记录按用户要求后置。PC 332 游戏画面和其余协议映射仍待完成，完整 G 保持 **partial**。旧恢复档保留。B0-S01 仍后置，B1 已收尾，N-2 维持 filed，B2、B3 实机核对已完成。[G 验收边界](2026-11-13-client-acceptance.md#g抓包恢复验收2026-11-16)
 
 | 任务 | 源码／材料 | 自动检查 | 客户端验收 | 下一步与门禁 |
 | --- | --- | --- | --- | --- |
@@ -18,7 +18,7 @@
 | D | 新增专项，未重写启动／周期业务 | 7 项通过；宿主在 A1 续作中构建通过 | 浏览器保存／回读、非法输入、周期确认／取消／滚动／重置通过；托管重启未验 | SDK 已就绪；D 尚未接续，等待逐项确认 |
 | E | 五域契约差距与取样步骤完成 | 24 项来源哈希已核对；原生审计仍缺素材 | 未执行 | 玩法实现票保持缺证阻塞 |
 | F | 15 入口及另两项分开登记 | 运行专项部分通过；原生导出核对缺 Lua | 全部自然游玩／重登未验 | 自动检查不替代客户端 |
-| G | 首版映射、独立验证和原子发布已实现；真实恢复范围仍 partial | 合成账号及失败／并发检查通过，见下文；真实预览缺 10 封普通邮箱及 144 个未审核协议 | 阻塞 | 未发布真实恢复档，不能把合成正向检查算作真实导入或游戏登录通过 |
+| G | 新 `1117-补` 档的 9 封邮件正文齐全；章节收藏、红点、补偿提示、礼物置换和烤肉计数已补映射；`43001` 已在隔离候选闭合 | 最新导入专项 40 项通过（补充档阶段为 37 项）、共享 23 项、重建 4 项和基础回归通过；候选 170 帧、103 协议、54 个未闭合；SQLite 双检查 ok；休闲专项 19 通过／1 缺工具 error | 新档 UID `261117212902`、槽位 8；发布档为 169 帧、102 协议、55 个未闭合；PC 332 游戏画面和退出重登待验 | 使用“账号恢复_1117_补充”；`43001` 候选 `published=false`；当前无明确必需补抓，54 个未闭合协议继续审核；抽卡记录用户后置 |
 | H1 | 三键、五模板和 10 人试稿完成 | 4 项离线检查通过；5 模板异模型逐字复核通过 | 在线／游戏内未验 | 10 稿 `reviewed=false`；未扩展、未启用或回填 |
 | H2 | 符号／职责与拆分子计划完成 | 基础回归通过；M2 真机收官未通过 | 未执行 | 只交付前置材料，未迁移三大业务文件 |
 | H3 | 本轮执行状态、来源、交付与停止原因已更新 | 文档与差异复核完成 | 不适用 | 历史票保持可追溯，不批量勾选 |
@@ -320,6 +320,237 @@
 - IAB 浏览器实际输入 HTTPS 端口 `65536`，页面显示错误并禁用保存。改为 `11443`、CDN `relay` 后保存、重新读取均一致；配置文件实际为这两项 override。周期卡片从 9,000／15,000 开始，取消保持、滚动可见后续档位；确认后回读为 0／0，领取列表为空，下次刷新时间不变。SQLite 实读货币 `2=777`、材料 `41201=7` 保持。见 `d-browser-readback.json`、`d-launch-browser.jpg` 和 `d-cycle-browser.jpg`。临时服务已停止，未重启真实宿主。
 
 ### G：新独立存档导入
+
+**2026-11-17 刻印副本：隔离候选闭合 `43001`。** 槽位 8 的发布基线为 102 个逐值核验协议、55 个未闭合协议。本轮在同一来源上增加 1 个核验协议。候选剩余 34 个 pending、18 个 partial、2 个 evidence-only，共 54 个。未发布新槽。
+
+| 计划项 | 状态与证据 |
+| --- | --- |
+| 来源归属与持久映射 | done。原生 `StageGroupCfg[30007].stage_list` 的 5 个关卡是 `2020071` 至 `2020075`。`BattleEquipData.InitBattleEquipData` 按难度保存次数。在重新打开的候选数据库中，5 行套装都是 46，次数依次为 6、8、4、3、1。未审核的组只保留证据，不参与登录核验。 |
+| 正常登录与查询 | done。`python -B -X utf8 selftest_tmp/priority-repair/g-1117-43001/verify.py` 退出 0。来源时钟下，170 帧全部解码，103 个协议参与对照。`43002` 返回的 `43001` 与来源全字段一致，SQLite 完整性为 `ok`。原始抓包、现有存档及槽位登记的散列不变。[逐值报告](../../selftest_tmp/priority-repair/g-1117-43001/verified.json) |
+| 周期与结算 | done。来源刷新到期时切回本地组 30001；各难度次数和套装保留。按客户端 `BattleEquipAction.CaculateGuaranteeNum` 的规则，每次掉落五星刻印清零，否则加 1。批量结算逐次计算。 |
+| 实机与轮换规则 | partial。未验 PC 332 的画面与重登。现有两天记录不能推出完整官服轮换表，不扩展本地排期。 |
+
+工件：新增 `stage_service.battle_equip_snapshot`（登录、查询、结算共用）和 `capture_account_state._equip_dungeon_gap`（处置清单、写库共用）。新增模块、类、表及 CLI 参数均为 0；生产顶层函数净增 2。
+
+异模型复核：GPT 6 Luna high，共两轮，最终无确认缺陷。已修正普通战斗保底写入失败时的事务边界，以及空档选择套装后未落库的问题。同类结算入口已扫：`54032` 复用保存点，`54038` 已有扫荡事务。共享结算路径在入口解析一次战斗会话，后续分支复用 `entry_context`；普通 `54032` 结算直接传入已有的 `session`。复杂度删除清单：删除 `43002` 内重复的投影、固定成功载荷、结算分支内的重复会话读取和普通结算的再次全局查找；其他无。
+
+最终验证均读取实际输出：
+
+| 验证入口 | 结果 |
+| --- | --- |
+| `tests/m3_import_check.py selftest_tmp/priority-repair/g-1117-supplement/rebuilt` | exit 0，40 项，60.096 秒；覆盖来源映射、查询、套装切换、跨组保底、错误来源处置、事务回滚和重试。[最终日志](../../selftest_tmp/priority-repair/g-1117-43001/import-final.log) |
+| `tests/m2_defect_checks.py` | exit 0，`ALL PASSED` |
+| `v5_server/tools/verify_report_small_fixes.py` | exit 0，23 项 |
+| `v5_server/tools/verify_sweep_context.py` | exit 0，4 项；重复会话读取已消除 |
+| `v5_server/tools/test_settlement_retry_boundary.py` | exit 0，8 项 |
+| `tests/smoke_dispatch.py` | exit 0，423 个操作、52 个有效参数，未捕获异常和行为变化均为 0 |
+| 标准 CLI 预览 | exit 0，`ready=true`，103 个核验协议；34 `pending`、18 `partial`、2 `evidence-only` |
+
+**2026-11-17 晚间：收藏正文已闭合，新增 5 类持久映射。** 用户提供 `1117-补.pcapng`，并明确各卡池抽卡记录不用处理。输入为 188,788 字节，SHA256 `85dec55e61baca092f9ba262f9606e73b88c3cec3690cc381abb0cdf78d1707a`。上行 30 帧、下行 222 帧，登录段 192 帧，缺口／残留／冲突均为 0；来源 `308/332`，基准为北京时间 `2026-11-17 20:57:38`。
+
+| 计划项 | 状态与证据 |
+| --- | --- |
+| 收藏邮件详情 | **done。** 3 封正文和发件人直接取自新会话；收藏日期与原始发信日期保持 |
+| 普通邮件已得正文复用 | **done。** `supplement_mail_details` 核对同账号、同版本和邮件身份，补入 `1117` 中两封匹配正文；只补正文／发件人，不复制资产、已读或领奖标记。来源证明写入 `ops_common.capture_mail_details` |
+| 身份、冲突与来源链 | **done。** 不同主人／版本、标题、日期、附件、正文、发件人冲突及间接补充来源均拒绝；全部核对通过后才提交快照补充字典 |
+| 新增持久状态 | **done。** 73 项章节收藏、440 项红点；未领挑战补偿、礼物置换当日使用数和烤肉日计数按来源保存，原为空或 0 的状态保持 |
+| 新独立档 | **done。** `v5_server/账号恢复_1117_补充.db`，UID `261117212902`、100 级、槽位 8，SHA256 `80fde6296b18d3764031a6c90c3b01148c74f820065e7b2a1a866cc9925ad153` |
+| 发布后回读 | **done。** 77 名角色、1,385 件刻印、198 个钥从、808 条任务、473 条活动、478 项成就；6 封普通及 3 封收藏邮件正文均非空，且与实际来源逐值一致。SQLite 两项完整性检查均 `ok` |
+| 协议核验 | **done。** 正常挂载，169 帧发送／解码，102 个登录协议比较通过。166 个状态协议处置为 15 `core`、89 `restored`、18 `partial`、2 `evidence-only`、7 `excluded`、35 `pending`；55 个未闭合协议保留持久证据 |
+| 抓包任务 | **done（已确认缺项范围）。** 邮件缺项归零；抽卡记录用户后置。其余载荷先补代码映射，有具体字段缺失才安排新补抓 |
+| PC 332 与完整 G | **partial。** 尚未以本轮新档完成游戏画面及退出重登；余下映射和版本投影继续审核 |
+
+实际发布命令：
+
+```powershell
+python -B -X utf8 tools/import_capture_archive.py selftest_tmp/priority-repair/g-1117-supplement/rebuilt --name 账号恢复_1117_补充 --scope available --mail-details-from selftest_tmp/priority-repair/g-1117/rebuilt --apply
+```
+
+退出 `0`，`ready=true`、分槽 `registered=true`，普通及收藏邮件缺失 ID 均为空。报告无 `issues` 或 `missing_data`。[发布报告](../../selftest_tmp/priority-repair/g-1117-supplement/available-final-published.json) · [实际文件回读](../../selftest_tmp/priority-repair/g-1117-supplement/available-final-readback.json) · [抓包审计](../../selftest_tmp/priority-repair/g-1117-supplement/capture-audit.json)
+
+| 验证入口 | 实际结果 |
+| --- | --- |
+| `tests/m3_import_check.py selftest_tmp/priority-repair/g-1117-supplement/rebuilt` | exit 0，37 项，56.319 秒；`g-1117-supplement/import-full.log` |
+| 邮件补充的正向和拒绝两个用例 | 最后补充字典提交调整后，exit 0，2 项，3.968 秒；本轮命令输出 |
+| `tests/m2_defect_checks.py` | exit 0，ALL PASSED |
+| `v5_server/tools/verify_report_small_fixes.py` | exit 0，23 项 |
+| `tests/smoke_dispatch.py` | exit 0，423 操作、52 有效参数，未捕获异常及行为变化均为 0 |
+| `tests/capture_rebuild_check.py` | exit 0，4 项 |
+| `v5_server/tools/verify_sphero_leisure.py` | exit 1，20 项中 19 项通过、1 个 error；原生配置导出依赖 `extract_autochess_cfg` 不在仓库，已 filed，不计作通过 |
+
+专项的首次新夹具遗漏了全新库自动展示的初始收藏 `42010101`，已按真实源中已有的初始项修正；保留完整响应相等断言，没有改生产规则。其余日志位于 `g-1117-supplement/`，命令及结果见 `regression-results.json`。既有权益夹具缺 `40802` 的记录仍保留，本轮未改该测试。
+
+根 Codex 完成功能与复杂度复核；**GPT 6 Luna high** 复核共享路径及原始来源约束。其指出的 Python API 间接来源证明风险已 **fixed**：只接受原始重建快照，CLI 各目录分别读取；相应负例通过。同类扫查覆盖 CLI、公共函数、归一化、锁内重建和持久证明，无其他正文补充入口。新映射复用领域表和实际消费者，删除清单为旧的“空载荷含义未知”和要求用户制造非零进度的补抓建议；其余删除候选为“无”。净增生产顶层函数 1、CLI 参数 1，模块／类／配置键／数据库表均为 0，新增测试方法 3。
+
+以下为此前槽位 7 的历史记录，当前建议使用槽位 8。
+
+**2026-11-17：新补抓已建档，普通邮件正文缺口已闭合。** 输入 `1117.pcapng` 为 194,224 字节，SHA256 `cf41e1e619746265e6cadc8b8b995c9b28d2bbed49e517331c3588411d91a3e1`。单一 TCP 会话重建为上行 53 帧、下行 238 帧，两个方向缺口／残留／冲突均为 0；登录段 192 帧，版本 `308/332`。基准时刻为北京时间 `2026-11-17 20:13:23`。登录后的签到、领奖和难度选择另记在 `g-1117/capture-audit.json`，未合并进登录快照。
+
+| 计划项 | 状态与位置 |
+| --- | --- |
+| 新输入与来源绑定 | **done。** `g-1117/input-baseline.json`、`rebuilt/reconstruction.json`、`capture-audit.json`；独立使用新快照，未拼接 `1116` |
+| 普通邮箱详情 | **done。** 6 封普通邮件正文齐全；`281475045316800`、`281475045316801` 的正文和发件人逐值回读通过。公共实现为 `capture_import.py::_normalize_mail_records` |
+| 收藏邮箱 | **partial。** 3 封摘要已恢复，标题、收藏时间和原始发信时间一致；正文缺失 ID 通过 `unrestored_collect_mail_ids` 列出。`30020/30021`、`30022/30023` 复用同会话配对和归一化 |
+| 收藏时间保持 | **done。** `mail_service.py::get_collect_list` 读取既有 `collect_time`；`toggle_collect` 写入该字段，详情阅读仍只更新 `update_ts` |
+| 新独立档发布 | **done。** `v5_server/账号恢复_1117.db`，UID `261117203723`、100 级、槽位 7；SHA256 `34eeab848b33ded92a151489ce8a99d3716d53e27f9f5e5825140ee486bef0be`。旧档未覆盖 |
+| 实际持久回读 | **done。** 77 名角色、1,385 件刻印、198 个钥从、808 条任务、473 条活动、478 项成就、6 封普通邮件和 3 封收藏摘要；SQLite `integrity_check`／`quick_check` 均为 `ok`。`g-1117/available-final-readback.json` |
+| 协议处置 | **done。** 165 个状态协议：15 `core`、83 `restored`、22 `partial`、2 `evidence-only`、7 `excluded`、36 `pending`；60 个未闭合协议的证据持久化。97 个登录协议实际比较；邮箱查询另核对。`g-1117/available-final-published.json` |
+| 标准流程 | **done。** `docs/capture-recovery.md` 更新为打开收藏邮件补抓，修正 `reconstruction.json` 字段名，并给出槽位 7 启动命令 |
+| PC 332 游戏画面 | **not done。** 该阶段应选“账号恢复_1117”，核对 UID、邮件及玩法，再退出重登；当时未起服、未改 hosts。当前接续改用槽位 8 的“账号恢复_1117_补充”。 |
+| 完整 G | **partial。** 3 封收藏详情和其余协议映射仍缺；已有普通正文不再列为补抓目标 |
+
+实际发布命令：
+
+```powershell
+python -B -X utf8 tools/import_capture_archive.py selftest_tmp/priority-repair/g-1117/rebuilt --name 账号恢复_1117 --scope available --apply
+```
+
+退出 `0`，`ready=true`，`registered=true`，发布报告无 `issues` 或 `missing_data`。隔离挂载 `true`，发送／解码 166 帧，逐值比较 97 个登录协议。正常登录额外生成邮件 `281475045336726` 和任务 `60501` 至 `60504`，只在验证副本报告。独立[发布报告](../../selftest_tmp/priority-repair/g-1117/available-final-published.json)、[文件回读](../../selftest_tmp/priority-repair/g-1117/available-final-readback.json)和[来源审计](../../selftest_tmp/priority-repair/g-1117/capture-audit.json)均已保存。
+
+| 验证命令或入口 | 实际结果 |
+| --- | --- |
+| `tests/m3_import_check.py selftest_tmp/priority-repair/g-1117/rebuilt` | exit 0，34 项通过，59.988 秒；本轮命令输出 |
+| 同专项使用 `g-1116/rebuilt-standard` 的真实邮件、预览和阻塞发布 3 个用例 | exit 0，3 项通过，2.107 秒 |
+| `tests/capture_rebuild_check.py` | exit 0，4 项通过；`g-1117/rebuild.log` |
+| `tests/m2_defect_checks.py` | exit 0，ALL PASSED；`g-1117/basic-regression.log` |
+| `v5_server/tools/verify_report_small_fixes.py` | exit 0，23 项通过；`g-1117/shared-memory.log` |
+| `tests/smoke_dispatch.py` | exit 0，423 操作、52 个有效参数，未捕获异常 0、行为变化 0；`g-1117/smoke.log` |
+| 附加 `v5_server/tools/verify_paid_entitlements.py` | exit 1，17 项中 16 项通过；下述旧夹具缺项保留，未算通过 |
+| `git diff --check` | exit 0 |
+
+基础回归首次包装未把 `tests/` 放入模块路径，导致 `smoke_dispatch` 导入失败；补齐包装路径后重跑通过，未改生产代码或断言。附加权益专项的 `test_box_exp_both_entrypoints_and_no_weekly_limit` 因内存夹具缺 `item_catalog[40802]` 而失败；用 HEAD 的 `mail_service.py` 重跑同一用例仍失败，已 **filed** 为既有夹具缺项。证据为 `g-1117/mail-entitlements.log` 与 `mail-entitlements-head-baseline.log`；本轮未扩展到战令／任务夹具修复。
+
+根 Codex 完成功能复核，**GPT 6 Luna high** 完成共享路径独立审阅，未发现剩余必修缺陷。发件人丢失已 **fixed**，扫普通／收藏两个建档调用点及详情校验，无其他同类写入点；收藏时间问题已 **fixed**，扫 `get_collect_list`、`toggle_collect`、`get_mail_detail` 和 `collect_info` 返回值。独立复杂度删除清单：原普通邮箱重复归一化内联块；其余为“无”。本轮净增生产模块 0、类 0、顶层函数 1、CLI 参数 0、配置键 0、数据库表 0；新增测试方法 3。
+
+以下为 2026-11-16 的交付记录。该阶段当时使用槽位 6；当前建议使用槽位 8 的“账号恢复_1117_补充”。
+
+**2026-11-16 晚间：角色档与可恢复账号档已交付。** 用户提供根目录 `1116.pcapng`，先选择“先交付角色恢复档”，随后要求把其他可安全映射的状态一并恢复。本轮保留角色档，最终另建 `账号恢复_1116_完整.db`；完整官服进度仍按原 G 门禁单列。发布未切换活动库，也未重新应用 hosts。
+
+| 计划项 | 结果及位置 |
+| --- | --- |
+| 新输入与会话核对 | **done。** SHA256 `d42e78d4ef24f720d7836d52d71c1affa9eb437b2c96d75ede55420b9fef41ad`。唯一 TCP 8105 会话握手／关闭完整，上行 20、下行 216 应用帧，缺口／重叠／残留均为 0；登录前段 193 帧、165 协议。证据：`g-1116/reconstruction.json`、`rebuilt/`。 |
+| 邮箱读取器误拒绝 | **done。** 采用结束前最后摘要 `4/0→5/1`；两份相同 30003 归一，内容冲突继续拒绝。原始帧完整保留，候选只下发一个当前摘要。源码 `v5_server/capture_import.py`、专项 `test_ordered_mail_summary_updates_and_identical_query_replies_publish_once`。 |
+| 角色范围与复用 | **done。** `--scope heroes` 与默认 `full` 分开；新增 `_build_hero_rows()` 抽取原映射，供完整和角色构建复用。角色构建器复用普通新档与既有锁内重建／原子发布。普通材料、货币和其他玩法不从来源迁入。 |
+| 真实角色恢复 | **done。** 角色 77、刻印 1,385、钥从 198、档案 50、角色碎片记录 76、永久皮肤记录 38。77 个角色 ID 与来源完全相同，装备和钥从引用缺失均为 0。证据：`g-1116/hero-source-audit.json`、`hero-publication-readback.json`。 |
+| 正常登录投影 | **done。** 正常挂载测试副本，发送并解码 164 帧，对照 `12009/13009/14009/46011` 的全部角色字段；4 个投影均一致。角色模式用当前验证时钟，候选前后不变。完整模式继续使用来源时钟。 |
+| 新文件及槽位 | **done。** `v5_server/角色恢复_1116.db`，`save.owner_uid` 与发布报告一致，100 级，槽位 4。文件完整性 `ok`，主人唯一、API profile 为空；槽 3 仍为 `account.db`。10 个保护文件与发布前相同，注册表仅登记新档。 |
+| 可恢复账号档 | **done。** `v5_server/账号恢复_1116_完整.db`，UID `261116234900`，100 级，槽位 6。恢复 77 名角色、1,385 件刻印、198 个钥从、5 封普通邮件、473 条活动、808 条任务、35 项徽章、28 个自走棋树节点、198 个自走棋图鉴项及多个玩法持久表。文件完整性 `ok`。 |
+| 逐协议处置 | **done。** 165 个协议均有状态：15 个 `core`、82 个 `restored`、21 个 `partial`、2 个 `evidence-only`、7 个 `excluded`、38 个 `pending`。97 个协议经隔离登录逐值比较；其余状态未混入已核验集合。 |
+| PC 332 游戏画面 | **not done。** 下一步用本地服选择“角色恢复_1116”核对角色及装备。当前仍为官服解析，未自动切档或起服。 |
+| 完整 G 恢复 | **partial。** 新源为 `client_vs=308/resource_vs=332`，不与安装清单 app307 混写。可恢复档已保留 21 个部分字段、38 个待审核协议及 2 个证据帧的边界；完整模式仍缺两封自定义正文及全量协议闭合，不据此把完整模式放行。 |
+
+实际发布命令：
+
+```powershell
+python -B -X utf8 tools/import_capture_archive.py selftest_tmp/priority-repair/g-1116/rebuilt --name 角色恢复_1116 --scope heroes --apply
+```
+
+退出 0，`ready=true`、`registered=true`，报告无 `issues` 或 `missing_data`。[发布报告](../../selftest_tmp/priority-repair/g-1116/hero-apply.json) · [持久回读](../../selftest_tmp/priority-repair/g-1116/hero-publication-readback.json)
+
+账号恢复档的实际预览与发布命令：
+
+```powershell
+python -B -X utf8 tools/import_capture_archive.py selftest_tmp/priority-repair/g-1116/rebuilt-standard --name 账号恢复_1116_完整 --scope available
+python -B -X utf8 tools/import_capture_archive.py selftest_tmp/priority-repair/g-1116/rebuilt-standard --name 账号恢复_1116_完整 --scope available --apply
+```
+
+两次命令均退出 `0`。发布后隔离登录发送并解码 166 帧，比较 97 个协议，正常挂载为 `true`，文件及注册表回读为槽位 6。发布报告、拆分后的预览／发布 JSON 和持久回读位于 `g-1116/available-final-*.json`。最终档 SHA256 为 `55AE4A6127B4DA703AD614D5B791EDF809F879512B01B6C66A19026364581B7F`。角色档与 `1116.pcapng` 的 SHA256 保持 `CE4F…AAF4` 与 `d42e…41ad`。
+
+61 个未闭合协议均写入 `ops_common.capture_evidence`，保存状态、原因、补抓建议、会话 ID、来源哈希和完整载荷。持久回读为 21 个 `partial`、2 个仅证据、38 个 `pending`。早期槽位 5 的 `账号恢复_1116.db` 保留为中途档，最终验收使用槽位 6。
+
+隔离登录额外记录 8 个来源关卡和约 90 个来源商店商品不在当前客户端目录；这些来源值已写入持久表。正常登录新增任务 `60501`、`60502`、`60503`、`60504` 和邮件 `281475045323052`；候选发布不受这些当前目录差异影响。两封正文缺失邮件的 ID 为 `281475045316800`、`281475045316801`。
+
+最新验证日志均在 `selftest_tmp/priority-repair/g-1116/`。独立集沿用下方选择器，3 项已删除的 9 月原样本检查仍未执行。
+
+| 入口 | 实际结果 | 日志 |
+| --- | --- | --- |
+| 真实抓包导入，`tests/m3_import_check.py selftest_tmp/priority-repair/g-1116/rebuilt-standard` | exit 0，31 项通过，46.330 秒 | 本轮命令输出 |
+| 真实抓包隔离登录，`selftest_tmp/priority-repair/g-1116/probe_available.py` | exit 0，166 帧解码、97 协议比较、挂载 true | 本轮命令输出 |
+| 重建专项，`tests/capture_rebuild_check.py` | exit 0，4 项通过 | 本轮命令输出 |
+| 猫咪探索周期专项，`v5_server/tools/verify_admin_cat_calendar.py` | exit 0，10 项通过 | 本轮命令输出 |
+| 虚构推演登录专项，`v5_server/tools/verify_rogueteam_login.py` | exit 0，12 项通过 | 本轮命令输出 |
+| 导入独立集，`python -B -X utf8 -` | exit 0，24 项通过，48.256 秒 | `import-independent.log` |
+| `tests/m2_defect_checks.py` | exit 0，ALL PASSED | `basic-regression.log` |
+| `v5_server/tools/verify_report_small_fixes.py` | exit 0，23 项通过 | `shared-memory.log` |
+| `v5_server/tools/verify_hero_acquisition.py` | exit 0，33 项通过，含继承用例 | `hero-acquisition.log` |
+| `v5_server/tools/test_hero_response_boundary.py` | exit 0，13 项通过 | `hero-response.log` |
+| `v5_server/tools/verify_save_api_panel.py` | exit 0，19 项通过 | `save-panel.log` |
+| `tests/smoke_dispatch.py` | exit 0，423 操作、52 有效参数，未捕获异常及行为变化均为 0 | `smoke.log` |
+
+共享入口通过临时日志／备份包装执行。面板首次检查的包装覆盖了专项自己的备份目录，导致一处计数为 0；已修正包装以保留专项的隔离路径，19 项重跑通过，未改生产代码或原断言。
+
+功能复核由根 Codex 和 **GPT 6 Luna high** 完成。真实投影发现关系网应存 `tier_list`、档案漏存超心链，均在公共映射修复。异模型发现角色验证沿用旧来源时钟，会影响新档周期脉冲；已 **fixed**，专项以 7 天前来源验证当前时钟。已扫完整／角色两个调用方及 14009 生成器，关系网和超心链各有一个公共写入点，无其他遗漏站点。预期下行按既有规则补空洗练槽、从来源钥从实例推导 49 个非零佩戴引用；保留全部原数值比较，不更改生成器行为。
+
+独立复杂度复核：抽取共同角色映射，删除旧内联块及子进程未使用导入；其余删除候选为“无”。本轮新范围净增模块 0、类 0、顶层函数 2、CLI 参数 1、配置键 0，均已在总计划登记。角色新档使用既有 `new_player_v1` 基础，未另建存档格式或发布机制。
+
+以下为角色优先决定前的实施与历史记录，保留用于追溯。
+
+**2026-11-16 实施接续（`main@e57edf6`）。** 用户指定按总计划推进 G，并确认原抓包已删除。本轮完成独立源码修复与自动检查。真实来源、协议裁定和 PC 332 实机仍缺，G 保持 **partial**。
+
+| 计划项 | 状态与实际结果 | 位置 |
+| --- | --- | --- |
+| G1：来源完整性与登录成功顺序 | **源码／合成检查 done，真实证据 partial。** 缺整对流、非零残留、帧数冲突、失败／缺结果的确认及乱序均被拒绝；预览和 apply 失败前零写入。原工具的摘要格式未实核。 | `v5_server/capture_import.py:137`、`:335`；`tests/m3_import_check.py:213` |
+| G1／G2：普通邮箱 | **done。** 零摘要加非空明细被拒绝；默认字段省略后相同的重复邮件只写一份；内容冲突拒绝。标准化结果共用于预览、建档和隔离验证。 | `v5_server/capture_import.py:280`、`:665`、`:752`；`tests/m3_import_check.py:255` |
+| G2：实际领奖状态 | **源码／自动检查 done，真实恢复 partial。** 复用 `claim_task()`，恢复周期 `claimed_ts` 与永久 ledger；捕获时间初始化水位。单领、批量领及重登后重领已领任务，资产增量均为 0。未领任务正常发奖；跨日只重开日常任务。 | `v5_server/capture_import.py:485`、`:623`；`tests/m3_import_check.py:320` |
+| G2：动态登录与时钟 | **源码／自动检查 done，PC 332 实机 not done。** 合成档在连接版本 321／332 下实际发出的 `12009` 为 94，活动 323841 的 `60201` 为 99，`10201` 落在登录时间窗。保留导入 profile；时钟生成失败明确报错。 | `v5_server/capture_import.py:675`；`v5_server/login.py:262`；`tests/m3_import_check.py:279` |
+| G3：CLI 成功结果 | **合成发布 done，真实发布 not done。** 子进程真实执行 CLI，预览和完整发布均返回 0；新库 integrity 为 ok、UID 正确、分槽成功。同名重复导入拒绝，旧档、输入和父进程活动库保持。 | `tools/import_capture_archive.py:51`；`tests/m3_import_check.py:375` |
+| G3：槽位读锁与文件名 | **done。** A 独占锁期间添加 B，A 始终为槽 3，B 为槽 4；GM 存档目录扫描跳过暂时锁定的 A，并继续列出 B。确认损坏／消失才删除映射。合法名“旅途#1”读写同一文件；排除名称在普通建档和导入前均拒绝。 | `v5_server/save_slot_manager.py:122`、`:162`、`:414`；`v5_server/gm_save_scope.py:8`；`v5_server/save_generator.py:54`；`tests/m3_import_check.py:419` |
+| G3：暂存归属与恢复登记 | **done。** 既有空根和子目录均保留。硬链接失败不暴露新档；发布后清理失败保留路径和分槽报告。满槽释放一个位置后刷新可发现已发布文件；并发用例通过。 | `v5_server/capture_import.py:923`；`tests/m3_import_check.py:456`、`:819`、`:842` |
+
+输入只用运行协议生成的合成快照。输出为临时目录内的新独立库；真实恢复档没有发布。日志和普通建档备份均已隔离。C3 的运行副本、服务和路由未由本轮变更。
+
+**命令与实际结果。** 证据位于 `selftest_tmp/priority-repair/g-20261116/`。下列共享入口通过临时日志／备份包装执行，保留实际入口及参数。各入口计数包含其继承用例，不相加作为独立行为数。
+
+| 验证入口 | 实际结果 | 日志 |
+| --- | --- | --- |
+| `python -B -X utf8 -`，下方独立导入选择器 | exit 0，20 项通过，43.258 秒；3 项旧样本检查未执行 | `import-independent.log` |
+| `tests/m2_defect_checks.py` | exit 0，ALL PASSED | `basic-regression.log` |
+| `v5_server/tools/verify_report_small_fixes.py` | exit 0，23 项通过 | `shared-memory.log` |
+| `v5_server/tools/verify_slot_refresh.py` | exit 0，15 项通过 | `slot-refresh.log` |
+| `v5_server/tools/verify_slot_gateway_actions.py` | exit 0，18 项通过，含既有删除菜单用例 | `slot-gateway.log` |
+| `v5_server/tools/verify_launch_cycles.py` | exit 0，7 项通过 | `launch-cycles.log` |
+| `v5_server/tools/verify_minigame_empty_login.py` | exit 0，4 项通过 | `login-empty.log` |
+| `v5_server/tools/verify_osiris_study.py OsirisTests.test_static_login_capture_replaced_by_current_account OsirisTests.test_native_60201_login_owner_is_preserved_and_scoped_row_replaced OsirisTests.test_60201_owner_frame_is_generated_in_actual_login` | exit 0，3 项对应登录检查通过 | `osiris-login.log` |
+| `tests/smoke_dispatch.py` | exit 0，423 操作、52 个有效抓包参数、未捕获异常 0、行为变化 0，SMOKE PASS | `smoke.log` |
+
+从仓库根目录重跑独立导入集：
+
+```powershell
+@'
+import sys, unittest
+sys.path.insert(0, 'tests')
+import m3_import_check as module
+blocked = {'test_real_capture_exposes_missing_mail_details', 'test_preview_and_blocked_apply_preserve_existing_files_registry_and_keys', 'test_filtered_real_capture_rejects_projection_loss'}
+suite = unittest.TestSuite(module.CaptureImportTests(name) for name in unittest.defaultTestLoader.getTestCaseNames(module.CaptureImportTests) if name not in blocked)
+print('Not executed: original capture deleted; ' + ', '.join(sorted(blocked)), flush=True)
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+raise SystemExit(not result.wasSuccessful())
+'@ | python -B -X utf8 -
+```
+
+未执行的 3 项仍保留原断言，未改成 skip：原样本缺项回读、原样本预览／阻塞 apply 保护、原样本投影丢失检查。合成来源拒绝、CLI 零写入及文件保护已有对应独立结果。没有把独立集报告成完整原样本专项通过。
+
+**复核与处置。** 根 Codex 完成功能复核；不同模型 **GPT 6 Luna high** 完成共享路径复核。其发现的“邮件在标准化前比较，默认字段差异被误报冲突”已 **fixed**，对应发布测试通过。已扫 `_assess()`、`_build_rows()`、`_verify_isolated_login()`，无其他邮件重复比较站点。章节分段的原始冲突判断沿用原契约。SQLite URI 两个问题点均已修正；CLI 与暂存清理无第二入口。
+
+独立复杂度删除清单：旧的静态等级／积分序列分支、重复邮件解析及正文类型分支、已被数量校验覆盖的分支、未使用导入、CLI 不可达的 `return 2`。名称排除规则提为常量，由现有建档与扫描共同使用。其余删除候选：无。新增／删除模块、类、顶层函数、公开接口、CLI 参数、配置键及顶层包均为 0。
+
+最终静态检查：`git diff --check` 退出 0；6 个代码文件与 HEAD 的 AST 顶层类／函数集合相同。新增本地链接缺失 0。全量文档链接检查退出 1，发现 30 个 HEAD 已有的历史证据链接缺文件；已登记为旧证据缺失，本轮未重建。既有 `gm_api.py`、`m4_gm_api_check.py` 改动保持开工时的差异。
+
+**停止位置。** 本轮可独立实施部分已完成。新会话须从登录开始连续取证，在读信或领取前取全普通邮箱；重新冻结输入哈希、来源版本及协议映射。必需缺项和未裁定协议归零后，才发布新恢复档并做 PC 332 实机走查和重登。历史 187／10／144 没有重新核实；周／月跨界和真实来源兼容未由本轮合成用例证明。
+
+以下为本轮实施前的计划审阅与历史交付记录。
+
+**2026-11-16 计划审阅（`main@e57edf6`）。** G 可独立前移，按[修订计划](2026-11-12-repair-plan.md#批次-g接续新独立存档导入r12)接续。本轮仅修改总计划、导入契约和本台账。保留已有 C2／C3 等未提交改动，没有修改生产代码、运行导入或变更实机环境。
+
+- 当前输入：`Alpha-Persei-Captures/2026-09-26_登录/rebuilt/` 不存在；历史 `g-final.log`、`g-preview-final.json`、`g-source-projection-review.json` 也不在场。只读预览 `python -B -X utf8 tools/import_capture_archive.py Alpha-Persei-Captures/2026-09-26_登录/rebuilt --name Capture-Preview` 退出 `1`，`ready=false`，原因是目录缺失。下列 187／10／144 均为历史记录，不是本轮重新解码的值。
+- 源码缺口均已 **filed** 到 G1～G3 的[修复与验收表](2026-11-12-repair-plan.md#批次-g接续新独立存档导入r12)待实施。源码路径已确认，具体运行结果仍需表中的隔离用例。本轮未把这些项标成已修。
+- 同类扫查：邮件覆盖 `_assess()`、`_build_rows()`、`_verify_isolated_login()`。首版已映射登录序列的静态账号／时间载荷，发现 `12009`、非 `323801` 的 `60201`、`10201`，其余未发现同类。领奖检查发现任务缺少实际判定记录；章节星级、活跃度、活动和普通邮件已导入各自领取字段，仍须行为验收。未审核协议不在该结论范围。URI 问题有 `is_valid_save_db()`、`extract_save_metadata()` 两处；`used_uids()`、`_inspect_save_owner()` 已使用 `as_uri()`。导入 CLI 退出码及暂存根清理已扫，无第二入口；名称与槽位核对覆盖普通建档、导入、登记和刷新。
+- 计划修正 **done**：保留现有导入器及公共接口；分开来源 `307/321` 与 PC `307/332` 验收；补齐同会话邮箱与逐协议裁定；区分捕获时钟对照和当前周期重登；明确发布、分槽、退出码及真实客户端完成条件。若原会话无法补齐，另取完整会话作为新快照，不拼接历史状态。新增／删除模块、类、顶层函数、参数和配置键均为 0。
+- 检查范围：本轮是计划文档修改，不运行导入自动专项或无关代码测试。素材缺失不阻塞后续独立修复，但真实恢复保持 partial。
+- 功能及异模型复核：根 Codex 与 **GPT 6 Luna high** 完成。Luna 初次把部分动态登录、空暂存根和槽位问题视为已收口；按实际 profile、静态帧及异常分支复查后已更正。最终无剩余阻碍。补充 `--apply` 前后活动库／选槽不变的验收，沿用当轮确认票的发布门禁。
+- 独立复杂度复核：删除“重新实现导入器”的表述、把历史缺项当当前读值的断言、重复的缺陷清单和收口要求。复用现有构建、发布及并发检查，不新增机制；其余删除清单为“无”。文档检查：`git diff --check` 退出 `0`；本轮修改范围内的本地链接及锚点检查通过。开工前文本对比确认，既有 C 等改动及其他批次内容保留。
+
+以下为此前交付记录，保留用于追溯。已修项的历史登记不能替代上述未闭合项的实际验收。
 
 - 来源和边界：[导入契约](2026-11-13-capture-import-contract.md)。真实样本在 `10201` 前有 187 帧，`307/321` 版本，3 份输入哈希已记录。缺少 10 封普通邮箱明细，另有 144 个未审核协议号，真实恢复保持阻塞。
 - 构建复用 `AccountDB.new_save_workspace()`、34 张静态目录和现有角色蓝图。唯一主人和空 API profile 随新 UID 写入。账号帧从目标状态生成，不复用供体载荷；结束帧保留原头部元数据。

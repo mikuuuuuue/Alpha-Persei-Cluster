@@ -77,7 +77,7 @@ def build_mimir_bytes(mimir_id=0, chip_ids_str="", hero_chip_ids_str="", hero_id
 
 
 def build_teams_net_rec_bytes(team_index, heroes, cooperate_skill=0,
-                              mimir_id=0, chip_ids="", hero_chip_ids=""):
+                              mimir_id=0, chip_ids="", hero_chip_ids="", mimir_hero_id=0):
     """构建单个队伍 teams_net_rec (f1=team_index, f2=repeated hero_list, f3=cooperate_unique_skill_id, f4=mimir_info)"""
     b = bytearray()
     b += _pb_varint(1, int(team_index or 0))
@@ -92,7 +92,7 @@ def build_teams_net_rec_bytes(team_index, heroes, cooperate_skill=0,
     if cooperate_skill:
         b += _pb_varint(3, int(cooperate_skill))
         
-    mimir_b = build_mimir_bytes(mimir_id, chip_ids, hero_chip_ids)
+    mimir_b = build_mimir_bytes(mimir_id, chip_ids, hero_chip_ids, mimir_hero_id)
     if mimir_b:
         b += _pb_msg(4, mimir_b)
     return bytes(b)
@@ -134,6 +134,14 @@ def build_sc_63005(db, uid):
             heroes = []
         tr["heroes"] = [{"slot": i + 1, "hero_id": int(h), "owner_id": 0, "hero_type": 1}
                         for i, h in enumerate(heroes) if int(h or 0) > 0]
+        saved = db.query('SELECT slot,hero_id,owner_id,hero_type FROM reserve_team_hero '
+            'WHERE uid=? AND team_type=? AND cont_id=? AND team_index=? ORDER BY slot',
+            (uid, tr['stage_type'], tr['activity_id'], tr['team_index']))
+        if [row['hero_id'] for row in saved] == [row['hero_id'] for row in tr['heroes']]:
+            tr['heroes'] = saved
+            records = db.query("SELECT value_json FROM ops_common WHERE uid=? AND kind='stage_team_mimir' AND item_id=?",
+                (uid, f"{tr['stage_type']}:{tr['activity_id']}:{tr['team_index']}"))
+            tr['mimir_hero_id'] = int(json.loads(records[0]['value_json']).get('hero_id', 0)) if records else 0
 
     # 3. 分组聚合: team_type -> activity_id -> list of teams
     grouped = {}
@@ -159,7 +167,8 @@ def build_sc_63005(db, uid):
                     cooperate_skill=tr.get("cooperate_skill") or 0,
                     mimir_id=tr.get("mimir_id") or 0,
                     chip_ids=tr.get("mimir_chips") or "",
-                    hero_chip_ids=tr.get("hero_chips") or ""
+                    hero_chip_ids=tr.get("hero_chips") or "",
+                    mimir_hero_id=tr.get('mimir_hero_id', 0)
                 )
                 single_b += _pb_msg(2, t_bytes)
 

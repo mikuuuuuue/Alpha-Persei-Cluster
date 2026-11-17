@@ -51,7 +51,7 @@ def read(db,uid):
         if type(sid) is not int or sid not in STAGES:continue
         if type(duration) is not int or not 0<=duration<=0xffffffff:continue
         if type(point) is not int or not 0<=point<=0xffffffff:continue
-        out[sid]=dict(stage_id=sid,pass_time=duration,point=point if STAGES[sid]['rank_activity'] else 0)
+        out[sid]=dict(stage_id=sid,pass_time=duration,point=point)
     return out
 
 
@@ -61,7 +61,10 @@ def chapters(records):
 
 def payload(db,uid):
     records=read(db,uid)
-    return dict(pass_stages=[r for sid,r in sorted(records.items())],pass_chapters=chapters(records))
+    completed=set(chapters(records))
+    completed.update(row['chapter_no'] for row in db.query('SELECT chapter_no FROM osiris_chapter_progress WHERE uid=?',(uid,))
+                     if row['chapter_no'] in CHAPTERS)
+    return dict(pass_stages=[r for sid,r in sorted(records.items())],pass_chapters=sorted(completed))
 
 
 def sync(db,uid):

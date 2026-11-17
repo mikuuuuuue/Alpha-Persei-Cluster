@@ -51,7 +51,7 @@ def read(db,uid):
         stage=r['stage_id']
         if type(stage) is int and stage in STAGES:
             point=int(r['point'] or 0)
-            out[stage]=point if STAGES[stage]['type']==2 and 0<=point<=0xffffffff else 0
+            out[stage]=point if 0<=point<=0xffffffff else 0
     return out
 
 

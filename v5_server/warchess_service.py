@@ -77,6 +77,10 @@ def overview_payload(db,uid):
     box={}
     for r in db.query('SELECT chapter_id,box_id,num FROM warchess_box WHERE uid=?',(uid,)):
         box.setdefault(int(r['chapter_id']),[]).append(dict(id=int(r['box_id']),num=int(r['num'])))
+    if db.get_system_config('save.profile') == 'capture_import_v1':
+        return dict(chess_map_list=[dict(activity_id=g,chapter=current.get(g,0),chapter_info=[
+            dict(chapter_id=cid,box=box[cid]) for cid in sorted(box) if cid in LEVELS and LEVELS[cid]['type']==g])
+            for g in sorted(current)])
     groups={}
     for cid,cfg in LEVELS.items():groups.setdefault(int(cfg['type']),[]).append(dict(chapter_id=cid,box=box.get(cid,[])))
     return dict(chess_map_list=[dict(activity_id=g,chapter=current.get(g,0) if current.get(g,0) in LEVELS and LEVELS[current[g]]['type']==g else 0,chapter_info=rows) for g,rows in sorted(groups.items())])

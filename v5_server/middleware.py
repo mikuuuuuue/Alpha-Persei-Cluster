@@ -1377,40 +1377,40 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
 
     dest_int = int(dest or 0)
     from summer_board_nested import reserved as board_reserved,settle as settle_board
-    board_session=battle_context or get_battle_session(bid) or {}
-    if board_session.get('summer_board_context') or board_reserved(stage_type,dest_int):
+    entry_context = battle_context if battle_context is not None else (get_battle_session(bid) or {})
+    if entry_context.get('summer_board_context') or board_reserved(stage_type,dest_int):
         if sweep:raise ValueError('棋盘小游戏不能扫荡')
-        settle_board(ctx,uid,bid,result,board_session)
+        settle_board(ctx,uid,bid,result,entry_context)
         return build_battle_result(bid,result,dest_int,heroes=heroes,star_ids=(),
             use_seconds=max(0,int(battle_info.get('battle_time') or 0))//1000),[]
     from quanzhou_service import reserved as quanzhou_reserved, settle as settle_quanzhou
     if quanzhou_reserved(stage_type,dest_int):
         if sweep:raise ValueError('刺桐战斗不支持扫荡')
-        frames,items=settle_quanzhou(ctx,uid,bid,battle_context or get_battle_session(bid) or {},result,battle_info)
+        frames,items=settle_quanzhou(ctx,uid,bid,entry_context,result,battle_info)
         return build_battle_result(bid,result,dest_int,heroes=heroes,drops=[[(i['id'],i['num']) for i in items]] if items else [],star_ids=(),
             use_seconds=max(0,int(battle_info.get('battle_time') or 0))//1000),frames
     from rogueteam_battle import reserved as rogue_reserved, settle as settle_rogue
     if rogue_reserved(stage_type,dest_int):
         if sweep:raise ValueError('推演战斗不能扫荡')
-        frames=settle_rogue(ctx,uid,battle_context or get_battle_session(bid) or {},result,battle_info)
+        frames=settle_rogue(ctx,uid,entry_context,result,battle_info)
         return build_battle_result(bid,result,dest_int,heroes=heroes,star_ids=(),
             use_seconds=max(0,int(battle_info.get('battle_time') or 0))//1000),frames
     from warchess_battle import reserved as chess_reserved, settle as settle_chess
     if chess_reserved(stage_type,dest_int):
         if sweep:raise ValueError('因果观测不支持扫荡')
-        frames=settle_chess(ctx,uid,battle_context or get_battle_session(bid) or {},result,battle_info)
+        frames=settle_chess(ctx,uid,entry_context,result,battle_info)
         return build_battle_result(bid,result,dest_int,heroes=heroes,star_ids=(),
             use_seconds=max(0,int(battle_info.get('battle_time') or 0))//1000),frames
     from polyhedron_battle import reserved as poly_reserved, settle as settle_poly
     if poly_reserved(stage_type,dest_int):
         if sweep:raise ValueError('多维变量不支持扫荡')
-        frames=settle_poly(ctx,uid,battle_context or get_battle_session(bid) or {},result,battle_info)
+        frames=settle_poly(ctx,uid,entry_context,result,battle_info)
         return build_battle_result(bid,result,dest_int,heroes=heroes,star_ids=(),
             use_seconds=max(0,int(battle_info.get('battle_time') or 0))//1000),frames
     from sphero_battle_service import STAGES as sphero_stages,settle as settle_sphero
     if stage_type==66 or dest_int in sphero_stages:
         if sweep or stage_type!=66 or dest_int not in sphero_stages:raise ValueError('薇儿活动不支持此结算入口')
-        frames,items=settle_sphero(ctx,uid,bid,battle_context or get_battle_session(bid) or {},result,battle_info)
+        frames,items=settle_sphero(ctx,uid,bid,entry_context,result,battle_info)
         return build_battle_result(bid,result,dest_int,heroes=heroes,drops=[items] if items else [],star_ids=(),
             use_seconds=max(0,int(battle_info.get('battle_time') or 0))//1000),frames
     from skuld_service import COMBAT as skuld_nodes, REAL as skuld_real, finish_battle as finish_skuld
@@ -1449,13 +1449,12 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
     if dest_int in hodur_stages:
         if stage_type != 92 or sweep:
             raise ValueError('谧光叙录普通关卡仅允许原生战斗结算')
-        hodur_session = battle_context or get_battle_session(bid) or {}
-        check_hodur_battle(ctx.db, uid, hodur_session)
+        check_hodur_battle(ctx.db, uid, entry_context)
         if hodur_stages[dest_int]['chapter_id'] == 4:
             from hodur_challenge import finish_battle as finish_hodur_challenge
-            extra_frames = finish_hodur_challenge(ctx, uid, hodur_session, result, battle_info)
+            extra_frames = finish_hodur_challenge(ctx, uid, entry_context, result, battle_info)
         else:
-            extra_frames = finish_hodur_battle(ctx, uid, dest_int, activity_id, win=win, report=battle_info, session=hodur_session)
+            extra_frames = finish_hodur_battle(ctx, uid, dest_int, activity_id, win=win, report=battle_info, session=entry_context)
         extra_frames = (ctx.pop_pending_frames() if hasattr(ctx, 'pop_pending_frames') else []) + extra_frames
         br = build_battle_result(bid, result, dest_int, heroes=heroes, star_ids=(),
                                  use_seconds=max(0, int(battle_info.get('battle_time') or 0)) // 1000)
@@ -1474,35 +1473,36 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
             mythic_identity = entry(ctx.db, uid, dest_int, activity_id)
         else:
             from mythic_final_service import validate
-            mythic_identity = validate(ctx.db, uid, battle_context or get_battle_session(bid) or {})
+            mythic_identity = validate(ctx.db, uid, entry_context)
     from mythic_normal_service import is_normal, validate as validate_normal
     is_mythic_normal = is_normal(stage_type, dest_int)
     normal_identity = None
     if is_mythic_normal:
         if sweep:
             raise ValueError('常规黑区不支持扫荡')
-        normal_identity = validate_normal(ctx.db, uid, battle_context or get_battle_session(bid) or {})
+        normal_identity = validate_normal(ctx.db, uid, entry_context)
     is_boss_normal = (stage_type == 10) or (3010101 <= dest_int <= 3012015)
     is_boss_advance = (stage_type == 100) or (3012201 <= dest_int <= 3012399)
     if (is_boss_normal or is_boss_advance) and not sweep:
         # 必须在体力/资产/通关广播前检查；直接调用结算引擎也不能绕过。
-        _require_boss_battle_period(ctx, uid, battle_context or get_battle_session(bid) or {})
+        _require_boss_battle_period(ctx, uid, entry_context)
     boss_identity = None
     if is_boss_normal or is_boss_advance:
         if sweep:
             boss_identity = _boss_battle_context(ctx, uid, stage_type, dest_int,
-                                                 (battle_context or {}).get('index', 0))
+                                                 entry_context.get('index', 0))
         else:
-            boss_identity = _require_boss_battle_identity(ctx, uid, battle_context or get_battle_session(bid) or {})
+            boss_identity = _require_boss_battle_identity(ctx, uid, entry_context)
     is_equip_seizure = (stage_type == 53) or (3070101 <= dest_int <= 3070126)
     is_core_verification = (stage_type == 67) or (3090001 <= dest_int <= 3090999) or (10101 <= dest_int <= 16208)
     is_core_verification_cl = (stage_type in (88, 90)) or (3092001 <= dest_int <= 3093099)
-    is_equip_stage = (2020000 <= dest_int <= 2020099)
+    from stage_service import EQUIP_STAGE_IDS
+    is_equip_stage = dest_int in EQUIP_STAGE_IDS
     is_polyhedron = (stage_type == 52) or (3035000 <= dest_int <= 3036000) or (dest_int in (5001, 5002, 5003))
     is_rogue_team = (stage_type == 78) or (4100000 <= dest_int <= 4199999) or (100 <= dest_int <= 999)
     if is_rogue_team and not sweep:
         from rogueteam_flow import check_battle
-        check_battle(ctx.db,uid,battle_context or get_battle_session(bid) or {})
+        check_battle(ctx.db,uid,entry_context)
     is_warchess = (stage_type == 15) or (4040000 <= dest_int <= 4050000)
     from teach_service import service as teach_service
     teach_type = teach_service.stage_type(dest_int)
@@ -1551,10 +1551,9 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
             _combo_id = 0
             _mimir_id, _mimir_chips = 0, ""
             try:
-                # 扫荡没有出战会话，使用本次已解析的上下文；普通结算继续读取原会话。
-                _b_sess = battle_context if battle_context is not None else (get_battle_session(bid) or {})
-                _combo_id = int(_b_sess.get("cooperate_skill") or 0)
-                _mi = _b_sess.get("mimir_info") or {}
+                # 扫荡和普通结算共用入口解析的战斗上下文。
+                _combo_id = int(entry_context.get("cooperate_skill") or 0)
+                _mi = entry_context.get("mimir_info") or {}
                 _mimir_id = int(_mi.get("mimir_id") or 0)
                 _mimir_chips = ",".join(str(x) for x in (_mi.get("chip_list") or []) if x)
             except Exception:
@@ -1624,16 +1623,10 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
         EQUIP_PACK_MAP = {35105: 5, 35104: 5, 35103: 5, 35102: 4, 35101: 4, 35004: 4, 35003: 3, 35002: 2}
 
         if is_equip_stage and ctx.db is not None:
-            try:
-                rows = ctx.db.query("SELECT suit_id, insure_times FROM battle_equip WHERE uid=? AND stage_id=?", (uid, dest_int))
-                if not rows:
-                    rows = ctx.db.query("SELECT suit_id, insure_times FROM battle_equip WHERE uid=?", (uid,))
-                if rows:
-                    if rows[0].get("suit_id"):
-                        suit_id = int(rows[0]["suit_id"])
-                    cur_insure = int(rows[0].get("insure_times") or 0)
-            except Exception:
-                pass
+            from stage_service import battle_equip_snapshot
+            state = battle_equip_snapshot(ctx.db, uid)
+            suit_id = state['equip_suit_id']
+            cur_insure = state['insure_list'][equip_diff - 1]['insure_times']
 
         # 2. 掉落与奖励计算（严格区分初次首通与重复奖励）
         for t in range(times):
@@ -1722,6 +1715,8 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
                 else:
                     converted_one.append([iid, inum])
             one = converted_one
+            if is_equip_stage:
+                cur_insure = 0 if got_five_star else cur_insure + 1
 
             # 合并相同道具
             merged_gain = {}
@@ -1754,13 +1749,12 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
 
             # 刻印保底次数写库
             if is_equip_stage:
-                try:
-                    ctx.db.execute(
-                        "UPDATE battle_equip SET insure_times=? WHERE uid=? AND (stage_id % 10)=?",
-                        (cur_insure, uid, equip_diff)
-                    )
-                except Exception:
-                    pass
+                changed = ctx.db.execute(
+                    "UPDATE battle_equip SET insure_times=? WHERE uid=? AND (stage_id % 10)=?",
+                    (cur_insure, uid, equip_diff))
+                if not changed.rowcount:
+                    ctx.db.upsert('battle_equip', uid, dict(stage_id=dest_int, insure_times=cur_insure,
+                              suit_id=suit_id), keys=('uid', 'stage_id'))
 
         # 4. 关卡进度推进（按实际三星评估入库），结算帧 clear_times 精准对齐本次作战倍数 times
         if dest and not sweep and ctx.db is not None:
@@ -1786,7 +1780,7 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
                     try:
                         from codec import encode as _map_encode
                         _map_service.on_stage_clear(ctx.db, uid, dest_int,
-                            (get_battle_session(bid) or {}).get('map_backtrack_token', ''))
+                            entry_context.get('map_backtrack_token', ''))
                         extra_frames.append(DownFrame(24061, _map_encode(
                             'sc_24061', _map_service.payload(ctx.db, uid))))
                     except Exception as exc:
@@ -2624,7 +2618,8 @@ def _settle_battle_session(req, ctx, bid, session):
         # 兼容旧会话中仍有 extra 的情况，但不再读取或重发它。
         br, extra = session["br"], []
     else:
-        if boss_kind or mythic_final or rogue_battle or pinball_battle or hodur_battle or ash_battle or pub_battle or osiris_battle or skuld_battle or board_battle or sphero_battle or quanzhou_battle or polyhedron_battle or warchess_battle or mythic_normal:
+        from stage_service import EQUIP_STAGE_IDS
+        if int(dest) in EQUIP_STAGE_IDS or boss_kind or mythic_final or rogue_battle or pinball_battle or hodur_battle or ash_battle or pub_battle or osiris_battle or skuld_battle or board_battle or sphero_battle or quanzhou_battle or polyhedron_battle or warchess_battle or mythic_normal:
             from account_db import savepoint_transaction
             from operation_notifications import checkpoint_notifications, restore_notifications
             checkpoint = checkpoint_notifications(ctx)
@@ -2644,7 +2639,8 @@ def _settle_battle_session(req, ctx, bid, session):
                     if warchess_battle:
                         validate_chess(ctx.db,req.uid,session)
                     br, extra = _settle_frames(ctx, req.uid, bid, result, dest, times=times, heroes=heroes,
-                                              battle_info=b_info, stage_type=stage_type, activity_id=activity_id)
+                                              battle_info=b_info, stage_type=stage_type, activity_id=activity_id,
+                                              battle_context=session)
                     if rogue_battle or pinball_battle or hodur_battle or ash_battle or pub_battle or osiris_battle or skuld_battle or board_battle or sphero_battle or quanzhou_battle or polyhedron_battle or warchess_battle or mythic_normal:
                         pinball_ack = ctx.codec_encode('sc_54033', dict(result=0, battle_result=br))
                         if not isinstance(pinball_ack, (bytes, bytearray, memoryview)) or not pinball_ack:
@@ -2674,7 +2670,9 @@ def _settle_battle_session(req, ctx, bid, session):
                     return _rogue_battle_rejection(ctx,req.uid,bid,dest,str(exc))
                 raise
         else:
-            br, extra = _settle_frames(ctx, req.uid, bid, result, dest, times=times, heroes=heroes, battle_info=b_info, stage_type=stage_type, activity_id=activity_id)
+            br, extra = _settle_frames(ctx, req.uid, bid, result, dest, times=times, heroes=heroes,
+                                       battle_info=b_info, stage_type=stage_type,
+                                       activity_id=activity_id, battle_context=session)
         session["br"] = br
     if ctx.db is not None:
         from enemy_kill_service import record_battle
@@ -2713,36 +2711,10 @@ def _rogue_battle_rejection(ctx,uid,bid,dest,reason):
 
 def h_43002(req, ctx):
     """战斗装备 → sc_43003(result=0 ack) + sc_43001(动态 battle_equip 库表驱动)。"""
-    _p01 = None
-    if ctx.generator:
-        try:
-            _p01 = ctx.generator.gen_payload(43001, uid=req.uid, db=ctx.db)
-        except Exception:
-            _p01 = None
-    if not _p01 and ctx.codec_encode and ctx.db:
-        try:
-            rows = ctx.db.query("SELECT stage_id, insure_times, suit_id FROM battle_equip WHERE uid=?", (req.uid,))
-            suit_id = 1
-            insure_map = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-            if rows:
-                for r in rows:
-                    if r.get("suit_id"):
-                        suit_id = int(r["suit_id"])
-                    d = int(r["stage_id"]) % 10
-                    if 1 <= d <= 5:
-                        insure_map[d] = max(insure_map[d], int(r.get("insure_times") or 0))
-            _p01 = ctx.codec_encode("sc_43001", {
-                "stage_base_id": 30001,
-                "equip_suit_id": suit_id if suit_id > 0 else 1,
-                "next_refresh_time": int(time.time()) + 86400,
-                "insure_list": [{"difficulty": d, "insure_times": insure_map[d]} for d in range(1, 6)]
-            })
-        except Exception:
-            _p01 = None
+    from stage_service import battle_equip_snapshot
+    _p01 = ctx.codec_encode("sc_43001", battle_equip_snapshot(ctx.db, req.uid))
     if not _p01:
-        _p01 = (b"\x08\xb1\xea\x01\x10\x01\x18\x80\xa4\xa7\xda\x06"
-                + b"\x22\x04\x08\x01\x10\x00\x22\x04\x08\x02\x10\x00"
-                + b"\x22\x04\x08\x03\x10\x00\x22\x04\x08\x04\x10\x00\x22\x04\x08\x05\x10\x00")
+        raise ValueError("无法生成当前刻印副本状态")
     ctx.log("cs_43002 -> 动态 sc_43003+sc_43001（刻印关卡与UP套装状态）")
     return CSResponse([DownFrame(43003, b"\x08\x00"), DownFrame(43001, _p01)])
 

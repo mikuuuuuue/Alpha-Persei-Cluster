@@ -259,15 +259,33 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
                 )
                 continue
             gen = owned_payloads.get(cmd)
+            level_push = cmd == 12009 and dynamic
+            if level_push:
+                from new_player_service import payload
+                gen = _codec_encode('sc_12009', payload(db, uid, cmd))
+                if not gen:
+                    raise RuntimeError('当前等级帧生成失败')
             osiris_point_push = cmd == 60201 and payload_json and json.loads(payload_json).get('activity_id') == 323801
             if osiris_point_push:
                 from osiris_service import point_payload
                 gen = _codec_encode('sc_60201',point_payload(db,uid))
                 if not gen:
                     raise RuntimeError('战术研习积分帧生成失败')
+            imported_point_push = cmd == 60201 and dynamic and payload_json and not osiris_point_push
+            if imported_point_push:
+                activity_id = int(json.loads(payload_json)['activity_id'])
+                state = db.get('activity_point', uid, 'AND activity_id=?', (activity_id,))
+                if state is None:
+                    raise RuntimeError(f'活动 {activity_id} 缺少当前积分状态')
+                rewards = db.query('SELECT reward_id FROM activity_point_reward '
+                    'WHERE uid=? AND activity_id=? ORDER BY reward_id', (uid, activity_id))
+                gen = _codec_encode('sc_60201', dict(activity_id=activity_id,
+                    point=int(state['point']), reward_list=[int(row['reward_id']) for row in rewards]))
+                if not gen:
+                    raise RuntimeError('当前活动积分帧生成失败')
 
             # 1. dynamic == 1 时优先使用 generator 业务生成器
-            if cmd not in owned_payloads and not osiris_point_push and (fresh_save or dynamic or cmd in (47001, 47003, 24029, 24061, 30001, 11001, 18001, 20007, 20009, 52001, 52021, 53001, 19029, 34031, 34023, 34025, 34101, 68181, 12119, 89011, 68171, 24051, 24043, 85035, 49001, 49023, 51001, 83016, 83017, 83020, 83021, 83026, 79601, 28801, 28837, 86035) or (cmd == 32009 and dynamic_profile)) and generator is not None:
+            if cmd not in owned_payloads and not (level_push or osiris_point_push or imported_point_push) and (fresh_save or dynamic or cmd in (47001, 47003, 24029, 24061, 30001, 11001, 18001, 20007, 20009, 52001, 52021, 53001, 19029, 34031, 34023, 34025, 34101, 68181, 12119, 89011, 68171, 24051, 24043, 85035, 49001, 49023, 51001, 83016, 83017, 83020, 83021, 83026, 79601, 28801, 28837, 86035) or (cmd == 32009 and dynamic_profile)) and generator is not None:
                 try:
                     gen = generator.gen_payload(
                         cmd, uid=uid, db=db, res_version=login_res_version
@@ -282,6 +300,10 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
                 raise RuntimeError(f"sc_{cmd} 教学进度生成失败")
             if cmd == 15009 and gen is None:
                 raise RuntimeError('sc_15009 当前货币状态生成失败')
+            if cmd == 10201 and dynamic and gen is None:
+                raise RuntimeError('sc_10201 当前登录时钟生成失败')
+            if cmd == 43001 and dynamic and not gen:
+                raise RuntimeError('sc_43001 当前刻印副本状态生成失败')
             if cmd in (34031, 34023, 34025, 34101) and gen is None:
                 raise RuntimeError(f'sc_{cmd} 权益状态生成失败，拒绝回退录制状态')
             if cmd in (24029, 24061) and gen is None:
@@ -410,33 +432,6 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
                     dyn_hit += 1
             except Exception as _e:
                 log(f"[login] 多维变量周期 11003 推送异常: {_e}", "WARN")
-
-        # 好感与人际关系网登录联动推送：sc_73005 (礼物置换限额) + sc_73007 (已领羁绊故事) + sc_73001 (连携技能网)
-        try:
-            from trust_service import TrustService
-            _trust_svc = TrustService.get_instance()
-            p73005 = _c_enc("sc_73005", _trust_svc.get_displace_limit_payload(db, uid) if (db and uid) else {"limit_list": []})
-            if p73005 and generator is not None:
-                sock.sendall(generator.build_frame(73005, p73005))
-                sent += 1
-                dyn_hit += 1
-
-            claimed_rows = db.query("SELECT key_id FROM claim_ledger WHERE uid=? AND kind='relation_story'", (uid,)) if db and uid else []
-            got_list = [int(r["key_id"]) for r in claimed_rows]
-            p73007 = _c_enc("sc_73007", {"got_reward_id_list": got_list})
-            if p73007 and generator is not None:
-                sock.sendall(generator.build_frame(73007, p73007))
-                sent += 1
-                dyn_hit += 1
-
-            # sc_73001 连携技能（协作技能网）全量等级与进度：客户端 ComboSkillData:InitLevelData 初始化
-            p73001 = _c_enc("sc_73001", _trust_svc.get_combo_skill_payload(db, uid) if (db and uid) else {"info": {"skill_list": []}})
-            if p73001 and generator is not None:
-                sock.sendall(generator.build_frame(73001, p73001))
-                sent += 1
-                dyn_hit += 1
-        except Exception as _te:
-            log(f"[login] 好感与羁绊故事登录态推送异常: {_te}", "WARN")
 
         # AI 转译器：静默检测并派发今日节日/节气/生日问候信件
         try:

@@ -1416,6 +1416,11 @@ class PeripheralService:
         if ("pure_mode" in extra and extra["pure_mode"] != obj["table_setting"]
                 or "table_modules" in extra and extra["table_modules"] != obj["table_setting_module"]):
             logger.warning(f"uid={uid} 历史纯白/桌面设置已作安全读取投影，原存档保留")
+        for field, entries in extra.get('profile_asset_times', {}).items():
+            for item in obj.get(field, []):
+                item.update(entries.get(str(item['id']), {}))
+        if 'game_icon' in extra:
+            obj['game_icon'] = extra['game_icon']
         return encode("sc_32009", obj)
 
     def get_bgm_push_payload(self, uid, db):

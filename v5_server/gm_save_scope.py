@@ -2,6 +2,7 @@
 from pathlib import Path
 from urllib.parse import unquote
 import os
+import sqlite3
 from flask import g, has_request_context, request
 
 
@@ -17,7 +18,11 @@ def catalog(manager=None):
             name = path.name.lower()
             if path.is_symlink() or name.startswith(('_', '.', 'test_')) or '_bak_' in name or '_backup_' in name:
                 continue
-            if not is_valid_save_db(str(path)):
+            try:
+                valid = is_valid_save_db(str(path))
+            except (OSError, sqlite3.DatabaseError):
+                continue
+            if not valid:
                 continue
             uid, nick, level = extract_save_metadata(str(path))
             sid = slots.get(path.name)

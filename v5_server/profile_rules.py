@@ -27,6 +27,7 @@ def project_home_scenes(rows, legacy_rows=(), skin_scene_ids=(), *, now_ts):
         represented.add(sid)
         expires = int(row.get('lasted_time') or 0)
         if sid in entries:
+            entries[sid]['obtain_time'] = int(row.get('obtain_time') or 0)
             continue
         if sid > 0 and (expires == 0 or expires > now_ts):
             entries[sid] = dict(id=sid, lasted_time=expires, obtain_time=int(row.get('obtain_time') or 0))

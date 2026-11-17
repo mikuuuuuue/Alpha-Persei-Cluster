@@ -126,7 +126,7 @@ def is_valid_save_db(db_path: str) -> bool:
     try:
         if os.path.getsize(db_path) == 0:
             return False
-        uri = f"file:{os.path.abspath(db_path)}?mode=ro"
+        uri = Path(db_path).resolve().as_uri() + '?mode=ro'
         conn = sqlite3.connect(uri, uri=True, timeout=1.0)
         try:
             cur = conn.cursor()
@@ -138,7 +138,9 @@ def is_valid_save_db(db_path: str) -> bool:
             return bool(row and row[0] > 0)
         finally:
             conn.close()
-    except Exception:
+    except sqlite3.DatabaseError as exc:
+        if getattr(exc, 'sqlite_errorcode', None) not in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB):
+            raise
         return False
 
 
@@ -167,7 +169,7 @@ def extract_save_metadata(db_path: str) -> Tuple[int, str, int]:
         return uid, nick_name, user_level
 
     try:
-        uri = f"file:{os.path.abspath(db_path)}?mode=ro"
+        uri = Path(db_path).resolve().as_uri() + '?mode=ro'
         conn = sqlite3.connect(uri, uri=True, timeout=2.0)
         try:
             cursor = conn.cursor()
@@ -427,25 +429,37 @@ class SaveSlotManager:
             # 1. 清理已在磁盘上消失或损坏的无效文件
             for slot_id, fname in list(reg.items()):
                 p = self.server_dir / fname
-                if not p.is_file() or not is_valid_save_db(str(p)):
+                try:
+                    valid = is_valid_save_db(str(p))
+                except (OSError, sqlite3.DatabaseError):
+                    continue
+                if not valid:
                     del reg[slot_id]
 
             # Keep existing valid mappings; prefer slot 3 for an unregistered master.
             acc_db = self.server_dir / "account.db"
-            if (acc_db.is_file() and is_valid_save_db(str(acc_db))
-                    and 'account.db' not in {name.casefold() for name in reg.values()}
+            if ('account.db' not in {name.casefold() for name in reg.values()}
                     and SLOT_INDEX_SAVES_START not in reg):
-                reg[SLOT_INDEX_SAVES_START] = "account.db"
+                try:
+                    if is_valid_save_db(str(acc_db)):
+                        reg[SLOT_INDEX_SAVES_START] = 'account.db'
+                except (OSError, sqlite3.DatabaseError):
+                    pass
 
             # 3. 扫描磁盘上所有有效存档
+            from save_generator import EXCLUDED_SAVE_NAME
             disk_saves: List[str] = []
             for p in self.server_dir.glob("*.db"):
                 name = p.name.lower()
-                if name.startswith(("_", ".")) or name.startswith("test_"):
+                if EXCLUDED_SAVE_NAME.search(p.name):
                     continue
-                if "_bak_" in name or name.endswith(".bak") or "_backup_" in name:
+                if name in {fname.casefold() for fname in reg.values()}:
                     continue
-                if not is_valid_save_db(str(p)):
+                try:
+                    valid = is_valid_save_db(str(p))
+                except (OSError, sqlite3.DatabaseError):
+                    continue
+                if not valid:
                     continue
                 disk_saves.append(p.name)
 

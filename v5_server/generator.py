@@ -223,6 +223,13 @@ def gen_sc_49003(uid, chapter_id, db=None):
 
 def gen_28001(pkt, db, uid):
     """生成全量任务列表 sc_28001 (登录洪流第 68 帧)"""
+    if db.get_system_config('save.profile') == 'capture_import_v1':
+        import json
+        extra = json.loads((db.get('users', uid) or {}).get('extra') or '{}')
+        rows = db.query('SELECT task_id,progress,complete_flag,expired_ts FROM task WHERE uid=?', (uid,))
+        return encode('sc_28001', dict(assignment_list=[dict(id=row['task_id'], progress=row['progress'],
+            complete_flag=row['complete_flag'], expired_timestamp=row['expired_ts']) for row in rows],
+            send_type=0, newbie_phase=int(extra.get('task_newbie_phase', 1)), assignment_phase=int(extra.get('task_assignment_phase', 1))))
     import new_player_service as _fresh
     if _fresh.enabled(db,uid):
         return encode('sc_28001',_fresh.payload(db,uid,28001))
@@ -909,6 +916,35 @@ def gen_payload(cmd, uid=None, db=None, **kw):
     if cmd == 14503:
         from oath_service import OathService
         return OathService.get_instance().build_14503_payload(db, uid)
+    if cmd == 73001:
+        from trust_service import TrustService
+        return encode('sc_73001', TrustService.get_instance().get_combo_skill_payload(db, uid))
+    if cmd == 73007:
+        rows = db.query("SELECT key_id FROM claim_ledger WHERE uid=? AND kind='relation_story' ORDER BY key_id", (uid,))
+        return encode('sc_73007', dict(got_reward_id_list=[int(row['key_id']) for row in rows]))
+    if cmd in (12089, 21001, 14201, 58063, 32011):
+        if cmd == 12089:
+            row = db.get('game_user', uid) or {}
+            return encode('sc_12089', {key: int(row.get(key) or 0) for key in
+                ('is_first_draw', 'is_first_draw_limited', 'is_first_draw_lucky', 'total_buy_fatigue_times')})
+        if cmd == 21001:
+            row = db.get('user_setting', uid) or {}
+            return encode('sc_21001', dict(setting={key: int(row.get(key) or 0) for key in
+                ('sign_in_propel_switch', 'month_card_propel_switch')}))
+        if cmd == 14201:
+            row = db.get('player_skin', uid) or {}
+            skins = db.query('SELECT skin_id,unlock_ts FROM player_skin_unlocked WHERE uid=? AND skin_id BETWEEN 100000 AND 100999', (uid,))
+            return encode('sc_14201', dict(player_info_list=[dict(id=int(row.get('player_id') or 1001),
+                using_skin=int(row.get('using_skin') or 0), unlocked_skin=[dict(skin_id=r['skin_id'], time=r['unlock_ts']) for r in skins])]))
+        if cmd == 58063:
+            rows = db.query('SELECT * FROM dorm_information WHERE uid=? ORDER BY info_id,param_idx', (uid,))
+            grouped = {}
+            for row in rows:
+                grouped.setdefault(row['info_id'], []).append(row['param'])
+            return encode('sc_58063', dict(content_list=[dict(id=key, content_params=value) for key, value in grouped.items()]))
+        import json
+        extra = json.loads((db.get('users', uid) or {}).get('extra') or '{}')
+        return encode('sc_32011', dict(sub_poster_background_list=extra.get('sub_poster_background_list', [])))
     if cmd == 28001:
         return gen_28001(None, db, uid)
     if cmd == 28019:
@@ -1609,24 +1645,8 @@ def gen_payload(cmd, uid=None, db=None, **kw):
         chip_dict = ChipService.get_instance(db).get_sc_50001_dict(uid)
         return encode("sc_50001", chip_dict)
     if cmd == 43001:
-        # [Fix by Gemini 3.7-flash] 刻印副本状态库驱动（battle_equip 表 → sc_43001）
-        # 包含：开放关卡组 stage_base_id=30001, 选中的 UP 套装 equip_suit_id, 刷新时间 next_refresh_time, 难1~5保底列表 insure_list
-        rows = db.query("SELECT stage_id, insure_times, suit_id FROM battle_equip WHERE uid=?", (uid,))
-        suit_id = 1
-        insure_map = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        if rows:
-            for r in rows:
-                if r.get("suit_id"):
-                    suit_id = int(r["suit_id"])
-                d = int(r["stage_id"]) % 10
-                if 1 <= d <= 5:
-                    insure_map[d] = max(insure_map[d], int(r.get("insure_times") or 0))
-        return encode("sc_43001", {
-            "stage_base_id": 30001,
-            "equip_suit_id": suit_id if suit_id > 0 else 1,
-            "next_refresh_time": int(time.time()) + 86400,
-            "insure_list": [{"difficulty": d, "insure_times": insure_map[d]} for d in range(1, 6)]
-        })
+        from stage_service import battle_equip_snapshot
+        return encode("sc_43001", battle_equip_snapshot(db, uid))
     if cmd == 10600:
         # [Fix by Gemini 3.7-flash] open_system 全量下发（封锁公会体系 2401/2402/2404/2405/2406，保留通行证 1901/1902/1903/1904/1905/519，其余系统正常开放）
         _sys_ids = [20, 101, 201, 203, 204, 205, 206, 207, 208, 209, 210, 211, 221, 231, 235, 301, 302, 303, 304, 305, 306, 307, 308, 309, 311, 312, 313, 314, 316, 330, 331, 332, 333, 334, 335, 336, 337, 341, 342, 343, 344, 345, 346, 401, 501, 510, 511, 512, 513, 519, 601, 701, 702, 703, 801, 802, 803, 804, 901, 902, 904, 905, 1001, 1101, 1201, 1301, 1401, 1501, 1601, 1701, 1702, 1802, 1803, 1901, 1902, 1903, 1904, 1905, 2001, 2101, 2201, 2301, 2302, 2501, 2510, 2511, 2512, 2513, 2514, 2515, 2601, 2701, 2801, 2901, 3001, 3101, 3110, 3120, 9901, 9902, 9903, 9904, 9905, 9907, 9908, 9909, 9910, 9911, 9912, 10101, 10102, 10301, 10401, 10501, 10601, 10701, 10702, 10703, 10704, 11102, 20001, 20002]
@@ -1741,6 +1761,14 @@ def gen_payload(cmd, uid=None, db=None, **kw):
         svc = StageService.get_instance(db=db)
         s_list = svc.get_story_unlock_list(uid)
         return encode("sc_12001", {"story_list": s_list})
+    if cmd in (12011, 12111) and db.get_system_config('save.profile') == 'capture_import_v1':
+        from new_player_service import guide_payload
+        if cmd == 12111:
+            import json
+            extra = json.loads((db.get('users', uid) or {}).get('extra') or '{}')
+            if 'weak_guide_ids' in extra:
+                return encode('sc_12111', dict(mod_guide_list=extra['weak_guide_ids']))
+        return encode('sc_' + str(cmd), guide_payload(db, uid, cmd == 12111))
     if cmd == 12011:
         # 新手引导跳过列表库驱动 → sc_12011 mod_guide_list (guide 表)
         rows = db.query("SELECT guide_id FROM guide WHERE uid=? ORDER BY guide_id", (uid,))
@@ -1820,7 +1848,8 @@ def gen_payload(cmd, uid=None, db=None, **kw):
         from illustrated_listener import IllustratedSyncService
 
         # 1. 登录时执行全量图鉴自愈校准
-        IllustratedSyncService.sync_all_from_db(db, uid)
+        if db.get_system_config('save.profile') != 'capture_import_v1':
+            IllustratedSyncService.sync_all_from_db(db, uid)
 
         # 2. 读取全量图鉴数据（仅将已解锁条目加入下行负载帧，未解锁条目保留库中元数据）
         plots = db.query("SELECT item_id, is_view FROM illustrated WHERE uid=? AND kind='plot' AND (complete_flag IS NULL OR complete_flag != 0) ORDER BY item_id", (uid,))
@@ -2050,6 +2079,10 @@ def gen_payload(cmd, uid=None, db=None, **kw):
             except Exception:
                 pass
         return encode("sc_12023", {"reward": unclaimed_list})
+
+    if cmd == 73005:
+        from trust_service import TrustService
+        return encode('sc_73005', TrustService.get_instance().get_displace_limit_payload(db, uid))
 
     # ---------- 四大高难周常玩法动态下发数据驱动 ----------
     if cmd in (45201, 45001, 45101, 44007, 44009, 44019, 44021, 44023, 18001, 75009, 75017, 89013, 89025, 89431, 89801, 89021):

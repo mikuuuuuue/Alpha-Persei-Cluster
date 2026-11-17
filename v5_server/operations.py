@@ -6060,7 +6060,11 @@ class BattleEquipSuitOp(Operation):
 
     def apply(self, data, ctx):
         suit = int(data.get("equip_suit_id") or 0)
-        ctx.db.execute("UPDATE battle_equip SET suit_id=? WHERE uid=?", (suit, self.uid))
+        changed = ctx.db.execute("UPDATE battle_equip SET suit_id=? WHERE uid=?", (suit, self.uid))
+        if not changed.rowcount:
+            from stage_service import EQUIP_GROUP_FIRST_STAGE
+            ctx.db.upsert('battle_equip', self.uid, dict(stage_id=EQUIP_GROUP_FIRST_STAGE[30001],
+                          suit_id=suit), keys=('uid', 'stage_id'))
         return {"suit_id": suit}
 
     def respond(self, result, data, ctx):

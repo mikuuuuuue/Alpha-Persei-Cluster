@@ -228,7 +228,9 @@ class AchievementService:
         _ensure_cfg()
         self.init_user_achievements(uid)
         # 登录时触发一次静态快照自愈对账
-        self.reconcile_achievements(uid)
+        captured = self.db.get_system_config('save.profile') == 'capture_import_v1'
+        if not captured:
+            self.reconcile_achievements(uid)
 
         rows = self.db.query(
             "SELECT achievement_id, progress, need, complete_flag, achieve_time FROM achievement WHERE uid=? ORDER BY achievement_id",
@@ -238,7 +240,7 @@ class AchievementService:
         ach_list = []
         for r in (rows or []):
             a_ts = int(r.get("achieve_time") or 0)
-            if a_ts == 1786411503:
+            if a_ts == 1786411503 and not captured:
                 a_ts = now_ts if (int(r.get("progress") or 0) >= int(r.get("need") or 0)) else 0
             ach_list.append({
                 "id": int(r["achievement_id"]),

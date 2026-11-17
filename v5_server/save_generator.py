@@ -51,6 +51,9 @@ def validate_uid(value):
     return int(raw)
 
 
+EXCLUDED_SAVE_NAME = re.compile(r'^(?:[_.]|test_)|_bak_|_backup_', re.IGNORECASE)
+
+
 def save_filename(name):
     if not isinstance(name, str) or not name:
         raise ValueError('存档名称须为1—32个字符（不含.db后缀）')
@@ -61,6 +64,8 @@ def save_filename(name):
         raise ValueError('存档名称不能包含路径、系统保留符号或首尾空白')
     if not stem or stem in ('.', '..') or stem.endswith(('.', ' ')):
         raise ValueError('存档名称无效')
+    if EXCLUDED_SAVE_NAME.search(stem):
+        raise ValueError('存档名称不能使用扫描排除的测试或备份名称')
     if stem.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}:
         raise ValueError('不能使用系统保留名称')
     return stem + '.db'

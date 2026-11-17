@@ -121,6 +121,7 @@ def claim(ctx, uid, ids):
             rows = ctx.db.query('SELECT score,sign,is_rewarded FROM resident_music_record WHERE uid=? AND music_id=?', (uid, mid))
             require(bool(rows) and int(rows[0]['sign'] or 0) in (1, 2, 3), '音乐曲目尚未完成')
             row = rows[0]
+            require(row['is_rewarded'] is not None, '恢复来源缺少本曲领奖记录，须核实后再领取')
             require(not row['is_rewarded'], '音乐奖励已领取')
             target = int(CONTRACT['targets'][str(mid)])
             require(1 <= target <= len(CONTRACT['grades']), '音乐奖励目标配置不合法')

@@ -654,12 +654,16 @@ class TrustService:
         """sc_73001 登录推送载荷: {info: {skill_list: [{id, level, progress_list: [{id, times}]}]}}
         全量连携；无记录默认 1 级零进度（与客户端 GetCurComboSkillLevel 默认值一致）"""
         skill_list = []
-        for sid in sorted(self.combo_skill_cfg.keys()):
+        skill_ids = sorted(self.combo_skill_cfg.keys())
+        if db.get_system_config('save.profile') == 'capture_import_v1':
+            skill_ids = [int(row['skill_id']) for row in db.query('SELECT skill_id FROM combo_skill_state WHERE uid=? ORDER BY skill_id', (uid,))]
+        for sid in skill_ids:
             level, prog = self._get_combo_state(db, uid, sid)
             skill_list.append({
                 "id": sid,
                 "level": level,
-                "progress_list": [{"id": int(cid), "times": int(t)} for cid, t in sorted(prog.items()) if t > 0],
+                "progress_list": [{"id": int(cid), "times": int(t)} for cid, t in sorted(prog.items())
+                                  if t > 0 or db.get_system_config('save.profile') == 'capture_import_v1'],
             })
         return {"info": {"skill_list": skill_list}}
 

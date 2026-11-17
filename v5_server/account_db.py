@@ -3745,6 +3745,12 @@ class AccountDB:
             }
 
         # 3. 从 momotalk_message 读取全量 266 条会话（静态全量字典）
+        if self.get_system_config('save.profile') == 'capture_import_v1':
+            grouped = {}
+            for row in self.query('SELECT session_id,hero_id FROM momotalk_session WHERE uid=? ORDER BY session_id', (uid,)):
+                grouped.setdefault(row['hero_id'], []).append(persisted[row['session_id']])
+            return dict(icon=cur_icon, type_hero=[dict(type=1, hero_session=[dict(sender_id=hero_id, session_list=sessions)
+                for hero_id, sessions in grouped.items()])])
         cur = self.execute(
             "SELECT message_id, mtype, sender, content_id FROM momotalk_message ORDER BY message_id ASC"
         )
@@ -3995,6 +4001,8 @@ class AccountDB:
 
     def ensure_all_backhome_heroes(self, uid):
         """确保玩家在 backhome_hero 表中拥有完整的全部 63 位官方角色档案底表记录。"""
+        if self.get_system_config('save.profile') == 'capture_import_v1':
+            return
         existing = self.query("SELECT archives_id FROM backhome_hero WHERE uid=?", (uid,))
         exist_aids = set(r["archives_id"] for r in existing)
         owned = {self.get_archive_id(r['id']) for r in self.query(
@@ -4013,6 +4021,13 @@ class AccountDB:
             exclusion = " AND archives_id NOT IN (" + ','.join('?' for _ in owned) + ')' if owned else ''
             self.execute("UPDATE backhome_hero SET is_lock=1 WHERE uid=? AND is_lock=0" + exclusion,
                          (uid, *sorted(owned)))
+
+    def get_canteen_entrust_tags(self, uid, row, heroes):
+        records = self.query("SELECT value_json FROM ops_common WHERE uid=? AND kind='canteen_entrust' AND item_id=?", (uid, str(row['pos'])))
+        saved = json.loads(records[0]['value_json']) if records else {}
+        if saved.get('task_id') == row['task_id'] and saved.get('hero_list') == heroes:
+            return saved.get('tags', [])
+        return []
 
     def get_backhome_concise(self, uid):
         """[Fix by Gemini 3.7-flash] 获取后宅/家园登录简要数据（sc_58001），包含所有英雄疲劳度与岗位。"""
@@ -4066,11 +4081,12 @@ class AccountDB:
         entrust_list = []
         for r in c_entrusts:
             heros = [int(x) for x in r["hero_list"].split(",") if x] if r.get("hero_list") else []
+            tags = self.get_canteen_entrust_tags(uid, r, heros)
             entrust_list.append({
                 "pos": r.get("pos") or 1,
                 "id": r["task_id"] or (r.get("pos") or 1),
                 "hero_list": heros,
-                "tags": [],
+                "tags": tags,
                 "num_max": 3,
                 "refresh_times": r.get("refresh_times") or 0,
                 "start_time": r.get("start_time") or 0,
@@ -4092,8 +4108,11 @@ class AccountDB:
         owned_archives = {self.get_archive_id(r['id']) for r in self.query(
             "SELECT id FROM hero WHERE uid=? AND unlock=1", (uid,))}
         is_fresh = self.get_system_config('save.profile') == 'new_player_v1'
+        captured = self.get_system_config('save.profile') == 'capture_import_v1'
         for aid, primary_hid in sorted(ARCHIVE_MAP.items()):
             hr = hmap.get(aid)
+            if captured and hr is None:
+                continue
             fatigue = hr["fatigue"] if hr else 140
             feed_times = hr["feed_times"] if hr else 0
             total_feed = hr["total_feed_times"] if hr else 0
@@ -4102,7 +4121,7 @@ class AccountDB:
                 is_lock = 1
             backhome_hero.append({
                 "archives_id": aid,
-                "hero_id": primary_hid,
+                "hero_id": hr['hero_id'] if captured else primary_hid,
                 "fatigue": fatigue,
                 "feed_times": feed_times,
                 "total_feed_times": total_feed,
@@ -4148,19 +4167,24 @@ class AccountDB:
         fur_rows = self.query("SELECT * FROM backhome_furniture WHERE uid=?", (uid,))
         furnitures = [{"furniture_id": r["furniture_id"], "num": r["num"], "give_num": r.get("give_num") or 0} for r in fur_rows]
 
+        meta_rows = self.query('SELECT * FROM backhome_meta WHERE uid=?', (uid,))
+        meta = meta_rows[0] if meta_rows else {}
+        user_rows = self.query('SELECT extra FROM users WHERE uid=?', (uid,))
+        extra = json.loads(user_rows[0]['extra'] or '{}') if user_rows else {}
         return {
             "canteens": canteens,
             "canteen_furnitures": canteen_furnitures,
             "backhome_hero": backhome_hero,
-            "last_fatigue_update_time": now_ts,
+            "last_fatigue_update_time": int(meta.get('last_fatigue_update_time') or now_ts),
             "dorm": dorm,
             "ingredients": ingredients,
-            "daily_game_currency_num": 0,
-            "exhibition_id": 5,
+            "hero_setting": [{'hero_id': row['hero_id'], 'skin_id': row['skin_id']} for row in hero_rows if row.get('skin_id')],
+            "daily_game_currency_num": int(extra.get('backhome_daily_game_currency_num', 0)),
+            "exhibition_id": int(meta.get('exhibition_id') or 5),
             "furnitures": furnitures,
             "backhome_suit_id_list": suit_ids,
-            "share_is_open": 1,
-            "received_be_visited_gift_num": 0
+            "share_is_open": int(meta.get('share_is_open', 1)),
+            "received_be_visited_gift_num": int(meta.get('received_be_visited_gift_num', 0))
         }
 
     def _get_canteen_food_cfg(self):
@@ -4546,7 +4570,7 @@ class AccountDB:
                 "pos": r.get("pos") or 1,
                 "id": r["task_id"] or (r.get("pos") or 1),
                 "hero_list": heros,
-                "tags": [],
+                "tags": self.get_canteen_entrust_tags(uid, r, heros),
                 "num_max": r.get("num_max") or 3,
                 "refresh_times": r.get("refresh_times") or 0,
                 "start_time": r.get("start_time") or 0,

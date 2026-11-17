@@ -20,7 +20,10 @@ class Chapter19Service:
     def _load(self, db, uid):
         rows = db.query('SELECT state_json FROM chapter19_state WHERE uid=?', (uid,))
         state = json.loads(rows[0]['state_json']) if rows else dict(scans=[], clues={}, events=[], days=[])
-        if (not isinstance(state, dict) or set(state) != {'scans', 'clues', 'events', 'days'}
+        allowed = ({'scans', 'clues', 'events', 'days'},
+                   {'scans', 'clues', 'events', 'days', 'detectors'},
+                   {'scans', 'clues', 'events', 'days', 'detectors', 'map_clues'})
+        if (not isinstance(state, dict) or set(state) not in allowed
                 or not all(isinstance(state[k], list) for k in ('scans', 'events', 'days'))
                 or not isinstance(state['clues'], dict)):
             raise ValueError('Invalid chapter19 state')
@@ -28,7 +31,14 @@ class Chapter19Service:
                 or any(eid not in self.event_locations for eid in state['events'])
                 or any(day not in self.days for day in state['days'])
                 or any(int(lid) not in self.locations or cid not in self.locations[int(lid)]['clue']
-                       for lid, cid in state['clues'].items())):
+                       for lid, cid in state['clues'].items())
+                or any(not isinstance(row, dict) or set(row) != {'chapter_id', 'day', 'status'}
+                       or row['chapter_id'] != 10119 or type(row['day']) is not int
+                       or row['status'] not in (0, 1) for row in state.get('detectors', []))
+                or not isinstance(state.get('map_clues', {}), dict)
+                or any(not isinstance(key, str) or not key.isdigit()
+                       or not isinstance(ids, list) or any(type(i) is not int for i in ids)
+                       for key, ids in state.get('map_clues', {}).items())):
             raise ValueError('Unknown chapter19 state IDs')
         return state
 
@@ -73,9 +83,13 @@ class Chapter19Service:
                                     for lid, cid in sorted(state['clues'].items(), key=lambda p: int(p[0]))
                                     if int(lid) in ids],
                 event_list=sorted(eid for eid in state['events'] if self.event_locations[eid] in ids),
-                clue_list=[]))
-        return dict(map_info=info, detector_info=[dict(chapter_id=10119, day=day, status=1)
-                                                 for day in sorted(set(state['days']))])
+                clue_list=sorted(set(cid for lid, cid in state['clues'].items() if int(lid) in ids)
+                                 | set(state.get('map_clues', {}).get(str(mid), [])))))
+        detectors = state.get('detectors')
+        if detectors is None:
+            detectors = [dict(chapter_id=10119, day=day, status=1)
+                         for day in sorted(set(state['days']))]
+        return dict(map_info=info, detector_info=detectors)
 
     def scan(self, db, uid, mid):
         mid = int(mid)

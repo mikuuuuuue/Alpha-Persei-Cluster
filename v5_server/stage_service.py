@@ -26,6 +26,36 @@ logger = logging.getLogger("stage_service")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 META_PATH = os.path.join(BASE_DIR, "stage_meta.json")
 
+# StageGroupCfg lists five consecutive difficulties for each equip dungeon group.
+EQUIP_GROUP_FIRST_STAGE = {30000 + group: 2020001 + 10 * group for group in range(1, 8)}
+EQUIP_STAGE_IDS = frozenset(stage for first in EQUIP_GROUP_FIRST_STAGE.values()
+                            for stage in range(first, first + 5))
+
+
+def battle_equip_snapshot(db, uid: int) -> dict:
+    """Project difficulty counters across groups; honor a captured group until its deadline."""
+    now = int(time.time())
+    group, refresh, suit = 30001, 0, 1
+    counters = [0] * 5
+    for row in db.query('SELECT stage_id, insure_times, suit_id, next_refresh_time '
+                        'FROM battle_equip WHERE uid=? ORDER BY stage_id', (uid,)):
+        stage = row['stage_id']
+        difficulty = stage % 10
+        if not 1 <= difficulty <= 5:
+            continue
+        counters[difficulty - 1] = max(counters[difficulty - 1], row['insure_times'] or 0)
+        suit = row['suit_id'] or suit
+        deadline = row['next_refresh_time'] or 0
+        if deadline > refresh:
+            first = stage - difficulty + 1
+            group = next((key for key, value in EQUIP_GROUP_FIRST_STAGE.items() if value == first), 30001)
+            refresh = deadline
+    if now >= refresh:
+        group = 30001  # The local service has no official rotation schedule.
+        refresh = refresh + ((now - refresh) // 86400 + 1) * 86400 if refresh else now + 86400
+    return dict(stage_base_id=group, equip_suit_id=suit, next_refresh_time=refresh,
+                insure_list=[dict(difficulty=d, insure_times=n) for d, n in enumerate(counters, 1)])
+
 
 class StageService:
     _instance = None

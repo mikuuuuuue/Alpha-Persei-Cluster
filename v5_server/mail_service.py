@@ -195,7 +195,7 @@ class MailService:
         for r in rows:
             lst.append({
                 "id": int(r["mail_id"]),
-                "collect_date": int(r.get("update_ts") or r.get("send_time") or 0),
+                "collect_date": int(r.get("collect_time") or r.get("update_ts") or r.get("send_time") or 0),
                 "title": str(r.get("title") or ""),
                 "mail_template_id": 0,
                 "title_format": [],
@@ -238,7 +238,10 @@ class MailService:
                 pass
 
         if not content_list:
-            fallback_text = (r.get("title") or "亲爱的管理员，感谢您的支持与陪伴！").strip()
+            if _db.get_system_config('save.profile') == 'capture_import_v1' and c_raw == '[]':
+                fallback_text = '此邮件正文未抓取。请在原账号打开此邮件后补抓。'
+            else:
+                fallback_text = (r.get("title") or "亲爱的管理员，感谢您的支持与陪伴！").strip()
             content_list = [{"text": fallback_text, "content_type": 2}]
         elif len(content_list) == 1 and not (content_list[0].get("text") or "").strip():
             content_list[0]["text"] = "亲爱的管理员，感谢您的支持与陪伴！"
@@ -401,8 +404,8 @@ class MailService:
         m_type = 2 if int(opt) == 1 else 1
         now_ts = int(time.time())
         _db.execute(
-            "UPDATE mail SET star_state=?, mail_type=?, update_ts=? WHERE uid=? AND mail_id=?",
-            (star, m_type, now_ts, uid, int(mail_id))
+            "UPDATE mail SET star_state=?, mail_type=?, collect_time=?, update_ts=? WHERE uid=? AND mail_id=?",
+            (star, m_type, now_ts if star else 0, now_ts, uid, int(mail_id))
         )
         d = self.get_mail_detail(uid, mail_id, db=_db)
         collect_info = None
@@ -483,6 +486,10 @@ class MailService:
         精准下发 175 封信件的真实阅读状态，若已读则 is_viewed=True，从根本上防止虚假红点。"""
         _db = self._get_db(db)
         all_letters = self._SPECIAL_LETTERS_CACHE or []
+        captured = bool(_db and _db.get_system_config('save.profile') == 'capture_import_v1')
+        if captured and not all_letters:
+            rows = _db.query("SELECT letter_id,is_viewed FROM letter_special WHERE uid=? ORDER BY letter_id", (uid,))
+            return [{"id": int(row["letter_id"]), "is_viewed": bool(row["is_viewed"])} for row in rows]
         view_map = {}
         if _db:
             rows = _db.query("SELECT letter_id, is_viewed FROM letter_special WHERE uid=?", (uid,))
@@ -491,6 +498,8 @@ class MailService:
         result = []
         for l in all_letters:
             lid = int(l["id"])
+            if captured and lid not in view_map:
+                continue
             is_v = view_map.get(lid, False)
             result.append({"id": lid, "is_viewed": is_v})
         return result
