@@ -659,9 +659,11 @@ def get_core_verification_cycle(now_ts=None):
 def get_core_verification_period(db, uid, now_ts=None):
     now = int(time.time() if now_ts is None else now_ts)
     if db is not None:
-        row = db.get('ops_common', uid, "AND kind='core_verification_rotation' AND item_id='current'")
-        if row:
-            period = json.loads(row['value_json'])
+        rows = db.query(
+            "SELECT value_json FROM ops_common WHERE uid=? "
+            "AND kind='core_verification_rotation' AND item_id='current'", (uid,))
+        if rows:
+            period = json.loads(rows[0]['value_json'])
             refresh = period['refresh_timestamp']
             if refresh - 7 * 86400 <= now < refresh:
                 return period['now_cycle'], period['next_cycle'], refresh

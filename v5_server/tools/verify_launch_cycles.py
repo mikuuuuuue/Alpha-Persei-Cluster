@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -27,6 +28,7 @@ import linux_manager
 import main
 import server_net
 import save_slot_manager
+import weekly_challenge_service as weekly
 
 UID = 42
 ORIGIN = 'https://launch.example.test'
@@ -284,6 +286,39 @@ class LaunchCycleTests(unittest.TestCase):
                                     json_body={'uid': UID, 'token': card['token']}, headers=headers)
         self.assertEqual(response.json['code'], gm_api.GMErrorCode.PARAM_INVALID)
         self.assertEqual(list(self.db._conn().iterdump()), before)
+
+    def test_iteration_card_and_reset_use_saved_rotation_through_readonly_api(self):
+        now = int(time.time())
+        cycle = weekly.get_core_verification_cycle(now) % 16 + 1
+        period = dict(now_cycle=cycle, next_cycle=cycle % 16 + 1,
+                      refresh_timestamp=weekly.get_next_thursday_5am(now))
+        self.db.execute(
+            'INSERT INTO ops_common(uid,kind,item_id,value_json) VALUES(?,?,?,?)',
+            (UID, 'core_verification_rotation', 'current', json.dumps(period)))
+        stage = weekly.get_core_verification_stages(cycle)[0][0]
+        self.db.execute(
+            'INSERT INTO core_verification_stage_record '
+            '(uid,cycle,info_id,boss_type,difficult,sign) VALUES(?,?,?,?,?,1)',
+            (UID, cycle, stage['id'], stage['boss_type'], stage['difficult']))
+        headers = self.cycle_headers(self.login())
+        assets = self.asset_state()
+        response = self.request('GET', f'/api/gm/cycles?uid={UID}&kind=iteration', headers=headers)
+        self.assertEqual(response.status_code, 200)
+        card = response.json['data'][0]
+        self.assertNotIn('error', card)
+        self.assertTrue(card['token'])
+        self.assertTrue(any(row['id'] == f"stage-{stage['id']}" and row['current'] == 1
+                            for row in card['rows']))
+        reset = self.request('POST', '/api/gm/cycles/iteration/reset',
+                             json_body={'uid': UID, 'token': card['token']}, headers=headers)
+        self.assertEqual(reset.json['code'], 0, reset.json)
+        self.assertFalse(self.db.query(
+            'SELECT 1 FROM core_verification_stage_record WHERE uid=? AND cycle=?', (UID, cycle)))
+        self.assertEqual(self.asset_state(), assets)
+        saved = self.db.query(
+            "SELECT value_json FROM ops_common WHERE uid=? "
+            "AND kind='core_verification_rotation' AND item_id='current'", (UID,))[0]
+        self.assertEqual(json.loads(saved['value_json']), period)
 
 
 if __name__ == '__main__':

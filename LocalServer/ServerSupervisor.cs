@@ -292,11 +292,16 @@ public sealed class ServerSupervisor : IDisposable
                     proc.EnableRaisingEvents = true;
                     proc.Exited += (_, _) =>
                     {
-                        LogReceived?.Invoke($"[ServerSupervisor] 接管的后台服务主进程 (PID: {targetPid}) 已退出。");
-                        AppConfigManager.ClearServerState();
-                        IsAttached = false;
-                        _serverProcess = null;
-                        StateChanged?.Invoke(false);
+                        lock (_lock)
+                        {
+                            if (!ReferenceEquals(_serverProcess, proc)) return;
+                            LogReceived?.Invoke($"[ServerSupervisor] 接管的后台服务主进程 (PID: {targetPid}) 已退出。");
+                            AppConfigManager.ClearServerState();
+                            IsAttached = false;
+                            _serverProcess = null;
+                            proc.Dispose();
+                            StateChanged?.Invoke(false);
+                        }
                     };
 
                     AppConfigManager.SaveServerState(targetPid, LastResolvedServerDir ?? "");
@@ -554,13 +559,18 @@ public sealed class ServerSupervisor : IDisposable
             AppConfigManager.ClearServerState();
             IsAttached = false;
 
-            if (_serverProcess != null && !_serverProcess.HasExited)
+            var process = _serverProcess;
+            _serverProcess = null;
+            if (process != null)
             {
                 try
                 {
-                    LogReceived?.Invoke("[ServerSupervisor] 正在停止服务端进程树...");
-                    _serverProcess.Kill(entireProcessTree: true);
-                    _serverProcess.WaitForExit(3000);
+                    if (!process.HasExited)
+                    {
+                        LogReceived?.Invoke("[ServerSupervisor] 正在停止服务端进程树...");
+                        process.Kill(entireProcessTree: true);
+                        process.WaitForExit(3000);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -568,8 +578,7 @@ public sealed class ServerSupervisor : IDisposable
                 }
                 finally
                 {
-                    _serverProcess.Dispose();
-                    _serverProcess = null;
+                    process.Dispose();
                 }
             }
 
