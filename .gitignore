@@ -72,6 +72,20 @@ Thumbs.db
 *.before*
 *.part
 
+# Self-test artifacts & local-only data (migrated from .git/info/exclude so a fresh clone ignores them too)
+/selftest_tmp/
+/captures/
+/Alpha-Persei-Captures/
+/Alpha-Persei-Assets/
+/.superpowers/
+/AetherGazer_Server_v5.0_Portable/
+AetherGazer_Server_v5.0_Portable.zip
+*.dmp
+/v5_server/lua_proto_messages.json
+/v5_server/ai_bot_config.json
+/v5_server/cdn_cache/
+/v5_server/角色挖掘/
+
 # Per-host runtime state
 /v5_server/data/slot_registry.json
 /v5_server/data/slot_registry.lock
