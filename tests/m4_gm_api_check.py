@@ -40,9 +40,13 @@ class GmApiTests(unittest.TestCase):
         workspace = AccountDB.new_save_workspace()
         try:
             workspace.execute('INSERT INTO users(uid,nick) VALUES(?,?)', (UID, 'GM probe'))
-            workspace.execute('INSERT INTO hero_cfg(hero_id,unlock_star,name) VALUES(?,300,?)', (HERO, 'probe'))
-            workspace.execute('INSERT INTO hero_cfg(hero_id,unlock_star,name) VALUES(1084,100,?)', ('starter',))
-            workspace.execute('INSERT INTO item_catalog(id,type) VALUES(?,2)', (HERO,))
+            self.heroes = json.loads((ROOT / 'v5_server/data/heroes_catalog.json').read_text('utf-8'))
+            for hero in self.heroes:
+                workspace.execute('INSERT INTO hero_cfg(hero_id,unlock_star,name) VALUES(?,?,?)',
+                                  (hero['id'], hero['unlock_star'], hero['name']))
+                workspace.execute('INSERT INTO item_catalog(id,type) VALUES(?,2)', (hero['id'],))
+            workspace.execute("INSERT INTO hero_cfg(hero_id,unlock_star,name) VALUES(10006,300,'material')")
+            workspace.execute('INSERT INTO item_catalog(id,type) VALUES(10006,6)')
             items = {41201: 6, 1013011: 10, 90001: 20, 30009: 5, 99999999: 4, 88000000: 4, 2: 1}
             items.update({iid: 10 for iid in self.protected})
             workspace.set_currency(UID, 2, 777)
@@ -109,14 +113,55 @@ class GmApiTests(unittest.TestCase):
 
     def test_all_requires_json_boolean_and_rejects_unknown_hero(self):
         before = self.state()
+        other = self.state(self.paths[1])
         for value in ('false', 1, None):
             self.assertNotEqual(self.post('/heroes/unlock', dict(uid=UID, all=value))['code'], 0)
             self.assertEqual(self.state(), before)
         self.assertNotEqual(self.post('/heroes/unlock', dict(uid=UID, hero_id=999999))['code'], 0)
+        self.assertNotEqual(self.post('/heroes/unlock', dict(uid=UID, hero_id=10006))['code'], 0)
+        self.assertEqual(self.state(), before)
+        self.assertEqual(self.post('/heroes/unlock', dict(uid=UID, hero_id=HERO))['code'], 0)
+        self.db.execute('UPDATE hero SET level=37,weapon_exp=123 WHERE uid=? AND id=?', (UID, HERO))
+        self.db.execute('INSERT INTO hero_piece(uid,hero_id,num) VALUES(?,?,13)', (UID, HERO))
+        before = self.state()
         result = self.post('/heroes/unlock', dict(uid=UID, all=True))
         self.assertEqual(result['code'], 0, result)
+        expected = sorted(hero['id'] for hero in self.heroes)
+        self.assertEqual(result['data']['unlocked'], [hid for hid in expected if hid != HERO])
         self.assertEqual(self.db.query('SELECT id FROM hero WHERE uid=? AND unlock=1 ORDER BY id', (UID,)),
-                         [{'id': HERO}, {'id': 1084}])
+                         [{'id': hid} for hid in expected])
+        after = self.state()
+        for table in ('material', 'hero_piece', 'currency'):
+            self.assertEqual(after[table], before[table], table)
+        self.assertEqual(self.db.query('SELECT level,weapon_exp FROM hero WHERE uid=? AND id=?', (UID, HERO)),
+                         [{'level': 37, 'weapon_exp': 123}])
+        repeated = self.post('/heroes/unlock', dict(uid=UID, all=True))
+        self.assertEqual(repeated['code'], 0, repeated)
+        self.assertEqual(repeated['data']['unlocked'], [])
+        self.assertEqual(self.state(), after)
+        self.assertEqual(self.state(self.paths[1]), other)
+
+    def test_fractional_write_fields_preserve_all_assets(self):
+        before = self.state()
+        for route, body, field, value in (
+            ('/heroes/unlock', dict(hero_id=HERO), 'hero_id', 1075.9),
+            ('/inventory/add_suit', dict(suit_id=1, star=3), 'suit_id', 1.9),
+            ('/inventory/add_suit', dict(suit_id=1, star=3), 'star', 3.9),
+            ('/inventory/add_item', dict(item_id=41201, num=2), 'item_id', 41201.9),
+            ('/inventory/add_item', dict(item_id=41201, num=2), 'num', 2.9),
+        ):
+            with self.subTest(field=field):
+                body[field] = value
+                result = self.post(route, dict(uid=UID, **body))
+                self.assertEqual(result['code'], gm_api.GMErrorCode.PARAM_INVALID, result)
+                self.assertEqual(self.state(), before)
+
+    def test_unlock_rolls_back_when_catalog_item_is_not_a_hero(self):
+        self.db.execute('UPDATE item_catalog SET type=6 WHERE id=?', (HERO,))
+        before = self.state()
+        result = self.post('/heroes/unlock', dict(uid=UID, all=True))
+        self.assertNotEqual(result['code'], 0, result)
+        self.assertEqual(self.state(), before)
 
     def test_wrong_uid_and_online_guards_preserve_assets(self):
         before = self.state()

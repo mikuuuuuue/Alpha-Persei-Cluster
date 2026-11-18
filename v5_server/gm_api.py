@@ -172,9 +172,11 @@ def _parse_positive_int(val, field_name, required=True):
     """解析正整数参数，避免 ValueError 逃逸成 HTTP 500。"""
     if val is None or val == "":
         return (None, f"缺少参数 {field_name}") if required else (None, None)
+    if isinstance(val, bool) or (isinstance(val, float) and not val.is_integer()):
+        return None, f"{field_name} 格式非法，必须为正整数"
     try:
         parsed = int(val)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return None, f"{field_name} 格式非法，必须为正整数"
     if parsed <= 0:
         return None, f"{field_name} 必须为正整数"
@@ -762,12 +764,9 @@ def post_unlock_hero():
         return err(GMErrorCode.PARAM_INVALID, "缺少 hero_id 参数，或设置 all=true 解锁全图鉴")
 
     if hero_id is not None:
-        try:
-            hero_id = int(hero_id)
-            if hero_id <= 0:
-                return err(GMErrorCode.PARAM_OUT_OF_RANGE, "hero_id 必须为有效正整数")
-        except (ValueError, TypeError):
-            return err(GMErrorCode.PARAM_INVALID, "hero_id 格式非法，必须为整数")
+        hero_id, err_msg = _parse_positive_int(hero_id, 'hero_id')
+        if err_msg:
+            return err(GMErrorCode.PARAM_INVALID, err_msg)
 
     db, err_resp = _require_user(uid)
     if err_resp:
@@ -777,17 +776,23 @@ def post_unlock_hero():
         from inventory_service import InventoryService
         from server_net import run_while_save_offline
         from core import Connection
+        from gm_reader import _get_heroes_catalog
         import codec
         ctx = Connection(uid=uid, db=db, generator=_gen, codec_encode=codec.encode, codec_decode=codec.decode).to_handler_ctx()
         def unlock():
             with db.transaction():
-                legal = {row['hero_id'] for row in db.query('SELECT hero_id FROM hero_cfg')}
+                legal = {hero['id'] for hero in _get_heroes_catalog()}
+                if not legal:
+                    raise ValueError('可玩角色目录不可用')
                 if not all_heroes and hero_id not in legal:
                     raise ValueError('hero_id 不在当前角色目录中')
                 wanted = legal if all_heroes else {hero_id}
                 owned = {row['id'] for row in db.query('SELECT id FROM hero WHERE uid=? AND unlock=1', (uid,))}
                 granted = sorted(wanted - owned)
                 InventoryService.grant_items(ctx, uid, [(hid, 1) for hid in granted], source='gm')
+                unlocked = {row['id'] for row in db.query('SELECT id FROM hero WHERE uid=? AND unlock=1', (uid,))}
+                if unlocked - owned != set(granted):
+                    raise ValueError('角色解锁结果与目录不符')
                 return granted
         unlocked = run_while_save_offline(db.path, uid, unlock)
     except ValueError as exc:
@@ -830,25 +835,15 @@ def post_add_inventory_item():
     if err_msg:
         return err(GMErrorCode.PARAM_INVALID, err_msg)
 
-    raw_item_id = req.get("item_id")
-    if raw_item_id is None:
-        return err(GMErrorCode.PARAM_INVALID, "缺少 item_id 参数")
-    try:
-        item_id = int(raw_item_id)
-        if item_id <= 0:
-            return err(GMErrorCode.PARAM_OUT_OF_RANGE, "item_id 必须为有效正整数")
-    except (ValueError, TypeError):
-        return err(GMErrorCode.PARAM_INVALID, "item_id 格式非法，必须为整数")
+    item_id, err_msg = _parse_positive_int(req.get('item_id'), 'item_id')
+    if err_msg:
+        return err(GMErrorCode.PARAM_INVALID, err_msg)
 
-    raw_num = req.get("num", 1)
-    try:
-        num = int(raw_num)
-        if num <= 0:
-            return err(GMErrorCode.PARAM_OUT_OF_RANGE, "发放道具数量必须大于 0")
-        if num > 999999999:
-            return err(GMErrorCode.PARAM_OUT_OF_RANGE, "发放道具数量超出单次上限 (999999999)")
-    except (ValueError, TypeError):
-        return err(GMErrorCode.PARAM_INVALID, "道具数量 num 格式非法，必须为整数")
+    num, err_msg = _parse_positive_int(req.get('num', 1), 'num')
+    if err_msg:
+        return err(GMErrorCode.PARAM_INVALID, err_msg)
+    if num > 999999999:
+        return err(GMErrorCode.PARAM_OUT_OF_RANGE, "发放道具数量超出单次上限 (999999999)")
 
     db, err_resp = _require_user(uid)
     if err_resp:
@@ -881,21 +876,17 @@ def post_add_equip_suit():
     if err_msg:
         return err(GMErrorCode.PARAM_INVALID, err_msg)
 
-    suit_id = req.get("suit_id", 1)
-    try:
-        suit_id = int(suit_id)
-        if suit_id < 1 or suit_id > 82:
-            return err(GMErrorCode.PARAM_OUT_OF_RANGE, "刻印套装 ID 必须在 1~82 范围内")
-    except (ValueError, TypeError):
-        return err(GMErrorCode.PARAM_INVALID, "suit_id 格式非法，必须为整数")
+    suit_id, err_msg = _parse_positive_int(req.get('suit_id', 1), 'suit_id')
+    if err_msg:
+        return err(GMErrorCode.PARAM_INVALID, err_msg)
+    if suit_id > 82:
+        return err(GMErrorCode.PARAM_OUT_OF_RANGE, "刻印套装 ID 必须在 1~82 范围内")
 
-    star = req.get("star", 5)
-    try:
-        star = int(star)
-        if star < 3 or star > 5:
-            return err(GMErrorCode.PARAM_OUT_OF_RANGE, "刻印星级必须在 3~5 星范围内")
-    except (ValueError, TypeError):
-        return err(GMErrorCode.PARAM_INVALID, "star 格式非法，必须为整数")
+    star, err_msg = _parse_positive_int(req.get('star', 5), 'star')
+    if err_msg:
+        return err(GMErrorCode.PARAM_INVALID, err_msg)
+    if star < 3 or star > 5:
+        return err(GMErrorCode.PARAM_OUT_OF_RANGE, "刻印星级必须在 3~5 星范围内")
 
     db, err_resp = _require_user(uid)
     if err_resp:
