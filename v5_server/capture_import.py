@@ -830,10 +830,10 @@ def _build_rows(db, snapshot, uid, *, scope='full'):
     # payload bytes are never copied into the target account.
     sequence = []
     if scope == 'available':
-        from capture_account_state import ACCOUNT_COMMANDS, verified_commands
-        allowed_commands = MAPPED_COMMANDS | ACCOUNT_COMMANDS | {10503}
-        if 43001 not in verified_commands(snapshot):
-            allowed_commands -= {43001}
+        from capture_account_state import ACCOUNT_COMMANDS, LOCAL_COMMANDS, verified_commands
+        allowed_commands = MAPPED_COMMANDS | ACCOUNT_COMMANDS | LOCAL_COMMANDS.keys()
+        verified = set(verified_commands(snapshot))
+        allowed_commands -= {12099, 17021, 24019, 42001, 43001, 75009, 75017, 80115, 88023, 89207} - verified
     for frame in snapshot.login_frames:
         cmd = frame.cmd
         if scope == 'available' and cmd not in allowed_commands:
@@ -844,7 +844,11 @@ def _build_rows(db, snapshot, uid, *, scope='full'):
             activity_id = int(frame.decoded["activity_id"])
             sequence.append((frame, 1, _json(dict(activity_id=activity_id))))
             continue
-        if scope == 'available' and cmd == 43001:
+        if scope == 'available' and (cmd in LOCAL_COMMANDS or cmd in (10503, 11071, 12019, 12099, 12123, 15007, 17021, 23015, 24019,
+                                             24045, 34021, 35011, 42001, 43001, 44007, 44009, 44019, 44021, 44023, 55001,
+                                             59001, 60105, 60107, 80115, 81001, 83020, 85035,
+                                             51001, 68151, 68155, 68161, 75009, 75017, 83401, 85105, 88023, 88305,
+                                             89207, 89421, 89801)):
             sequence.append((frame, 1, None))
             continue
         # Keep the reviewed source object as the fallback for account protocols
@@ -922,6 +926,13 @@ def _verify_isolated_login(db, report):
     validation_time = int(time.time()) if scope == 'heroes' else int(snapshot.end_frame.timestamp)
     protocols = {str(cmd): deepcopy(rows) for cmd, rows in snapshot.protocol_data.items()
                  if cmd in required_commands}
+    for packet in protocols.get('11001', []):
+        for activity in packet.get('activity_list', []):
+            row = db.get('activity', report.target_uid, 'AND activity_id=?', (activity['activity_id'],))
+            fields = ('start_time', 'stop_time', 'state', 'theme', 'template')
+            if (not row or any(row[field] != activity.get(field, 0) for field in fields)
+                    or json.loads(row['sub_activity_id_list']) != activity.get('sub_activity_id_list', [])):
+                return dict(passed=False, reason=f"活动来源行未完整持久化：{activity['activity_id']}")
     if scope == 'available' and '63005' in protocols:
         from capture_account_state import team_protocol_state
         protocols['63005'] = [team_protocol_state(frame.payload) for frame in snapshot.login_frames if frame.cmd == 63005]
@@ -1014,7 +1025,7 @@ try:
     if packets[10201][0].get('timestamp')!=expected['validation_time']:
         raise RuntimeError('10201不是本次登录时钟')
     marker=commands.index(10201)
-    required=set(expected['required_commands'])
+    required=set(expected['required_commands'])-{68155,88023}
     after=set(commands[marker+1:])
     if required&after:
         raise RuntimeError('必需账号帧出现在10201之后')
@@ -1040,6 +1051,82 @@ try:
     differences=[]; response_omissions=[]; added_tasks=[]
     for command, source in expected['protocols'].items():
         received=packets.get(int(command),[])
+        if int(command) in (10600,11001,20007,49023):
+            if int(command)==10600:
+                from multiplayer_policy import CLOSED_SYSTEMS
+                if not received[0].get('open_system') or CLOSED_SYSTEMS.intersection(received[0]['open_system']):
+                    raise RuntimeError('系统开放列表违反本地策略')
+            if int(command)==49023:
+                opened={row['chapter_id']:row['timestamp'] for packet in received for row in packet.get('chess_open_info_list',[])}
+                for packet in source:
+                    if any(opened.get(row['chapter_id'])!=row['timestamp'] for row in packet.get('chess_open_info_list',[])):
+                        raise RuntimeError('因果观测来源章节开放时间不符')
+            with versions.connection_version(expected['resource_version']):
+                raw=generator.gen_payload(int(command),uid=uid,db=db,res_version=expected['resource_version'])
+            if raw is None:
+                raise RuntimeError('本地目录生成失败:'+command)
+            source=[codec.decode(raw,'sc_'+command) if raw else {}]
+        if int(command)==10503 and any(row.get('timestamp')!=expected['validation_time'] for row in received):
+            raise RuntimeError('10503 服务器时钟不是本次登录时钟')
+        if int(command)==88023 and not received and source==[{'event_id':0}]:
+            continue
+        if int(command)==68155 and not received and all(not row.get('skin_id') for row in source):
+            continue
+        if int(command)==68151:
+            from skin_draw_service import active_pools
+            pools={cfg['activity_id'][0]:cfg for cfg in active_pools(expected['resource_version']).values()}
+            observed={row['activity_id']:{item['drop_id'] for item in row.get('info',[])} for row in source}
+            received=[row for row in received if row['activity_id'] in observed]
+            for row in received:
+                aid=row['activity_id']
+                known=observed[aid]
+                locked=[item for item in row['info'] if item['drop_id'] not in known]
+                if any(item['num']!=pools[aid]['drops'][str(item['drop_id'])]['total'] for item in locked):
+                    raise RuntimeError('来源未开启的奖池阶段具有抽取记录')
+                row['info']=[item for item in row['info'] if item['drop_id'] in known]
+        if int(command)==51001:
+            source_stats={row['id'] for packet in source for row in packet.get('data_list',[])}
+            received=[dict(data_list=[row for row in packet.get('data_list',[]) if row['id'] in source_stats])
+                      for packet in received]
+        if int(command)==88305:
+            from rogueteam_service import RogueTeamService
+            relay=RogueTeamService.get(db=db)
+            actual_by_template={row['template_id']:row for row in received}
+            for row in source:
+                template=row['template_id']
+                flags=db.get('ops_common',uid,"AND kind='rogueteam_collection_flags' AND item_id=?",(str(template),))
+                unlock=set(row.get('unlock_collection',[]))
+                viewed=set(row.get('view_collection',[]))
+                if not flags or json.loads(flags['value_json'])!=dict(unlock=row.get('unlock_collection',[]),viewed=sorted(viewed)):
+                    raise RuntimeError('推演来源图鉴标记缺少持久记录')
+                actual=actual_by_template[template]
+                local_unlock=set(actual.get('unlock_collection',[]))
+                grouped={item for entry in row.get('collection_list',[]) for item in entry['item_list']}
+                expected_unlock=relay._relic_item_ids() | (relay._valid_item_ids() & (unlock | grouped))
+                if not unlock.issubset(local_unlock) or local_unlock!=expected_unlock:
+                    raise RuntimeError('推演解锁图鉴与来源或本地目录不符')
+                # Additional valid display slots belong to the client catalogue.
+                row['unlock_collection']=sorted(unlock)
+                actual['unlock_collection']=sorted(unlock)
+        if int(command)==68161:
+            from skin_draw_service import completed_story_ids
+            merged=completed_story_ids(db,uid,expected['resource_version'])
+            by_activity={row['activity_id']:row for row in received}
+            for row in source:
+                persisted=db.get_skin_story_state(uid,row['activity_id'])
+                actual=by_activity.get(row['activity_id'])
+                if (set(persisted)!=set(row.get('finished_story',[])) or actual is None
+                    or actual.get('story_stage',0)!=row.get('story_stage',0)
+                    or set(actual.get('finished_story',[]))!=merged
+                    or not set(persisted).issubset(merged)):
+                    raise RuntimeError('换装剧情与来源不符:'+str(row['activity_id']))
+            continue
+        if int(command)==89101 and expected['scope']=='available':
+            from autochess_service import AutoChessService
+            idle=AutoChessService.get_instance(db)._build_empty_89101()
+            if received!=[codec.decode(idle,'sc_89101')] or any(row.get('state')!=0 for row in packets.get(89125,[])):
+                raise RuntimeError('自走棋空闲存档生成了活动棋盘')
+            continue
         if expected['scope']=='available' and int(command)==24009:
             visible={row['id'] for packet in received for row in packet.get('user_chapter_list',[])}
             for packet in source:
@@ -1076,6 +1163,10 @@ try:
         if int(command)==30001:
             source=[dict(total_number=db.query('SELECT COUNT(*) n FROM mail WHERE uid=? AND mail_type=1',(uid,))[0]['n'],
                          unread_number=db.query('SELECT COUNT(*) n FROM mail WHERE uid=? AND mail_type=1 AND read_flag=1',(uid,))[0]['n'])]
+        if int(command)==83020:
+            from sphero_battle_service import opened
+            if any(row.get('is_start') != opened(db,uid,row['activity_id']) for row in received):
+                raise RuntimeError('薇儿 Boss 开放状态与本地活动时限不符')
         wanted_state=_protocol_state(int(command),source,scope=expected['scope'])
         received_state=_protocol_state(int(command),received,scope=expected['scope'])
         if wanted_state!=received_state:

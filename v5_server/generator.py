@@ -499,13 +499,13 @@ _SIGN_MONTHCARD = 34024
 _SEVEN_DAY_REWARD = None
 
 def seven_day_reward(activity_id, nth, *, res_version=None):
-    """七日/限时签到第 nth 次的奖励：ActivityCumulativeSignCfg[id].config_list[nth-1]
-    → SignCfg[sign_id].reward（提取自 x64 Lua：activity_cumulative_sign_cfg.json /
-    sign_cfg.json）。返回 (item_id, num) 或 None。"""
+    """按活动奖励目录取第 nth 次签到奖励。活动 4400101 的奖励循环发放。"""
     global _SEVEN_DAY_REWARD
     from sign_service import versioned_seven_day_rewards
     current = versioned_seven_day_rewards(activity_id, res_version)
     if current is not None:
+        if int(activity_id) == 4400101 and current and nth > 0:
+            return tuple(current[(nth - 1) % len(current)])
         return tuple(current[nth - 1]) if 1 <= nth <= len(current) else None
     if _SEVEN_DAY_REWARD is None:
         import json as _j7
@@ -994,6 +994,61 @@ def gen_payload(cmd, uid=None, db=None, **kw):
     if cmd == 24043:
         from skuld_service import archive_payload
         return encode('sc_24043',archive_payload(db,uid))
+    if cmd == 24045 and db.get_system_config('save.profile') == 'capture_import_v1':
+        rows = db.query("SELECT item_id FROM ops_common WHERE uid=? AND kind='stage_archive_unread'", (uid,))
+        return encode('sc_24045', dict(plot_list=sorted(int(row['item_id']) for row in rows)))
+    if cmd == 85105:
+        import json as _j
+        rows = db.query("SELECT item_id,value_json FROM ops_common WHERE uid=? AND kind='activity_unlock_options'", (uid,))
+        return encode('sc_85105', dict(opt_list=[dict(id=int(row['item_id']),
+            opt=[dict(key=int(key), value=value) for key, value in _j.loads(row['value_json']).items()]) for row in rows]))
+    if cmd == 83401 and db.get_system_config('save.profile') == 'capture_import_v1':
+        import json as _j
+        rows = db.query('SELECT * FROM monster_cosplay_progress WHERE uid=? AND completed_stages IS NOT NULL '
+                        'ORDER BY activity_id,chapter_id', (uid,))
+        if not rows:
+            return None
+        activity_id = rows[0]['activity_id']
+        monsters = []
+        for row in rows:
+            if row['activity_id'] != activity_id:
+                raise ValueError('怪物扮演进度包含多个活动')
+            state = dict(id=row['chapter_id'], affix_list=_j.loads(row['unlocked_affixes']),
+                         finished_stage=_j.loads(row['completed_stages']),
+                         finished_point_stage=_j.loads(row['stage_scores']))
+            if row['skill_enhance_times'] is not None:
+                state['skill_enhance_times'] = row['skill_enhance_times']
+            monsters.append(state)
+        return encode('sc_83401', dict(activity_id=activity_id, monster_list=monsters))
+    if cmd == 80115 and db.get_system_config('save.profile') == 'capture_import_v1':
+        return encode('sc_80115', dict(value_list=[]))
+    if cmd == 17021 and db.get_system_config('save.profile') == 'capture_import_v1':
+        if db.get('fukubukuro', uid):
+            raise ValueError('福袋实例未接入使用流程')
+        return encode('sc_17021', dict(instance_list=[]))
+    if cmd in (12019, 12099) and db.get_system_config('save.profile') == 'capture_import_v1':
+        import json as _j
+        if cmd == 12099:
+            return encode('sc_12099', dict(hide_list=[]))
+        extra = _j.loads((db.get('users', uid) or {}).get('extra') or '{}')
+        return encode('sc_12019', dict(gift_limit=bool(extra.get('gift_limit'))))
+    if cmd == 81001:
+        groups = {}
+        for row in db.query("SELECT item_id,value_json FROM ops_common WHERE uid=? AND kind='story_trigger' ORDER BY item_id", (uid,)):
+            groups.setdefault(int(row['value_json']), []).append(int(row['item_id']))
+        return encode('sc_81001', dict(info_list=[dict(trigger_group_id=group, completed_trigger_list=triggers)
+                                                   for group, triggers in sorted(groups.items())]))
+    if cmd in (11071, 12123, 24019) and db.get_system_config('save.profile') == 'capture_import_v1':
+        import json as _j
+        if cmd == 11071:
+            rows = db.query("SELECT item_id,value_json FROM ops_common WHERE uid=? AND kind='trial_hero_templates'", (uid,))
+            return encode('sc_11071', dict(hero_trial_list=[dict(activity_id=int(row['item_id']),
+                template_hero_list=_j.loads(row['value_json'])) for row in rows]))
+        if cmd == 12123:
+            rows = db.query("SELECT item_id FROM ops_common WHERE uid=? AND kind='hero_trial_completed'", (uid,))
+            return encode('sc_12123', dict(hero_id_list=sorted(int(row['item_id']) for row in rows)))
+        row = db.get('ops_common', uid, "AND kind='skuld_travel_history' AND item_id='0'") or {}
+        return encode('sc_24019', _j.loads(row.get('value_json') or '{}'))
 
     if cmd == 24051:
         from minigame_service import MiniGameService
@@ -1249,6 +1304,9 @@ def gen_payload(cmd, uid=None, db=None, **kw):
             "next_weekly_refresh_time": int(next_week.timestamp()),
             "next_monthly_refresh_time": int(next_month.timestamp())
         })
+    if cmd == 15007 and db.get_system_config('save.profile') == 'capture_import_v1':
+        from fatigue_service import currency_purchase_counts
+        return encode('sc_15007', currency_purchase_counts(db, uid))
     if cmd == 10201:
         # 进服时间同步（登录推）：真实 timestamp——2026-08-17 修复：素材旧时间戳
         # （1786411503≈8/10）导致客户端 GetDeltaToday 用旧日期判断签到（认为未签）
@@ -1352,7 +1410,7 @@ def gen_payload(cmd, uid=None, db=None, **kw):
             'total_sign_receive_list': [int(x) for x in _json(row.get('total_sign_receive_list'), [])],
             'daily_record': _json(row.get('daily_record'), []),
             'is_expire_tip': int(row.get('is_expire_tip') or 0), 'template_id': int(row.get('template_id') or 2)})
-    if cmd == 59011:
+    if cmd in (59001, 59011):
         # 新手活动数据（ActivityNoobData 初始化）
         import json as _j
         import recharge_service as _rcs
@@ -1366,8 +1424,7 @@ def gen_payload(cmd, uid=None, db=None, **kw):
         lvl_list = [int(p["level"]) for p in lvls]
         rec_svc = _rcs.RechargeService.get_instance(db=db)
         recharge_part = rec_svc.build_59009_payload(db, uid).get("newbie_recharge_reward") or {}
-        return encode("sc_59011", {
-            "completed_time": int(r.get("completed_time") or 0),
+        state = {
             "newbie_sign": {
                 "now_sign_times": int(r.get("now_sign_times") or 0),
                 "last_sign_timestamp": int(r.get("last_sign_ts") or 0)
@@ -1376,11 +1433,33 @@ def gen_payload(cmd, uid=None, db=None, **kw):
                 "received_level_list": lvl_list
             },
             "newbie_recharge_reward": recharge_part,
-            "trigger_time": int(r.get("trigger_time") or 0),
-            "max_phase": int(r.get("max_phase") or 7),
-            "got_pt_id_list": pt_list,
-            "version_id": int(r.get("version_id") or 3)
-        })
+            "trigger_time": int(r.get("trigger_time") or 0)
+        }
+        completed = int(r.get('completed_time') or 0)
+        if cmd == 59001:
+            return encode('sc_59001', dict(state, is_completed=completed))
+        return encode('sc_59011', dict(state, completed_time=completed,
+            max_phase=int(r.get('max_phase') or 7), got_pt_id_list=pt_list,
+            version_id=int(r.get('version_id') or 3)))
+    if cmd == 55001:
+        row = db.get('abyss', uid)
+        if not row:
+            return None
+        state = {name: row[name] for name in ('activity_id', 'history_max_layer', 'layer_reset_time',
+            'stage_reset_time', 'last_version_max_unlock_layer', 'refresh_timestamp')}
+        layers = {}
+        for stage in db.query('SELECT * FROM abyss_layer_stage WHERE uid=? ORDER BY layer_id,stage_id', (uid,)):
+            layer = stage['layer_id']
+            target = layers.setdefault(layer, dict(layer_id=layer, stage_info_list=[], boss_stage_info_list=[]))
+            info = dict(stage_id=stage['stage_id'], is_completed=bool(stage['is_completed']))
+            if stage.get('is_boss'):
+                info.update({field: stage[field] for field in ('score', 'phase', 'boss_hp_rate') if stage[field] is not None})
+                target['boss_stage_info_list'].append(info)
+            else:
+                target['stage_info_list'].append(info)
+        return encode('sc_55001', dict(state, is_back=bool(row['is_back']),
+            layer_info_list=list(layers.values()), got_layer_reward_list=[r['reward_id'] for r in
+                db.query('SELECT reward_id FROM abyss_reward WHERE uid=? ORDER BY reward_id', (uid,))]))
     if cmd == 62011:
         # 回归活动数据（RegressionDataNew 初始化）
         import time as _t, json as _j
@@ -1497,6 +1576,9 @@ def gen_payload(cmd, uid=None, db=None, **kw):
         import hero_codec as _hc
         payload = _hc.build_hero_payload(db, uid)
         return payload
+    if cmd == 23015:
+        row = db.get('users', uid) or {}
+        return encode('sc_23015', dict(ip_location=row.get('ip_location') or ''))
     if cmd == 68151:
         from skin_draw_service import active_pools, pool_snapshot
         pools = active_pools(kw.get('res_version'))
@@ -1647,6 +1729,10 @@ def gen_payload(cmd, uid=None, db=None, **kw):
     if cmd == 43001:
         from stage_service import battle_equip_snapshot
         return encode("sc_43001", battle_equip_snapshot(db, uid))
+    if cmd == 42001:
+        import json as _j
+        row = db.get('ops_common', uid, "AND kind='enchantment_stage_selection' AND item_id='current'")
+        return encode('sc_42001', _j.loads(row['value_json'])) if row else None
     if cmd == 10600:
         # [Fix by Gemini 3.7-flash] open_system 全量下发（封锁公会体系 2401/2402/2404/2405/2406，保留通行证 1901/1902/1903/1904/1905/519，其余系统正常开放）
         _sys_ids = [20, 101, 201, 203, 204, 205, 206, 207, 208, 209, 210, 211, 221, 231, 235, 301, 302, 303, 304, 305, 306, 307, 308, 309, 311, 312, 313, 314, 316, 330, 331, 332, 333, 334, 335, 336, 337, 341, 342, 343, 344, 345, 346, 401, 501, 510, 511, 512, 513, 519, 601, 701, 702, 703, 801, 802, 803, 804, 901, 902, 904, 905, 1001, 1101, 1201, 1301, 1401, 1501, 1601, 1701, 1702, 1802, 1803, 1901, 1902, 1903, 1904, 1905, 2001, 2101, 2201, 2301, 2302, 2501, 2510, 2511, 2512, 2513, 2514, 2515, 2601, 2701, 2801, 2901, 3001, 3101, 3110, 3120, 9901, 9902, 9903, 9904, 9905, 9907, 9908, 9909, 9910, 9911, 9912, 10101, 10102, 10301, 10401, 10501, 10601, 10701, 10702, 10703, 10704, 11102, 20001, 20002]
@@ -2119,11 +2205,15 @@ def gen_payload(cmd, uid=None, db=None, **kw):
             return encode("sc_75009", p)
         if cmd == 75017:
             import res_version_manager
-            version_cfg = res_version_manager.get_version_config(kw.get("res_version"))
+            version = str(kw.get('res_version') or res_version_manager.get_current_version())
+            version_cfg = res_version_manager.get_version_config(version)
             open_ed = int(version_cfg["heart_demon_activity_id"])
+            idle = db.get('ops_common', uid, "AND kind='heart_demon_inactive'")
+            captured_edition = (idle and db.get_system_config('capture.resource_version') == version
+                                and int(idle['value_json']) > int(time.time()))
             return encode("sc_75017", {
-                "open_edition": open_ed,
-                "challenge_stage": 1,
+                "open_edition": int(idle['item_id']) if captured_edition else open_ed,
+                "challenge_stage": 0 if captured_edition else 1,
                 "info_list": [],
                 "max_score_list": []
             })

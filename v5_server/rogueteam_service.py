@@ -881,6 +881,12 @@ class RogueTeamService:
                 unlock_collection.append(iid)
                 if c.get("is_viewed"):
                     view_collection.append(iid)
+        source_flags = db.get('ops_common', uid, "AND kind='rogueteam_collection_flags' AND item_id=?",
+                              (str(template_id),))
+        if source_flags:
+            flags = json.loads(source_flags['value_json'])
+            unlock_collection = sorted(set(unlock_collection) | (valid_item_ids & set(flags['unlock'])))
+            view_collection = sorted(set(view_collection) | (valid_item_ids & set(flags['viewed'])))
 
         collection_list = [{"type": t, "item_list": items} for t, items in collection_by_type.items()]
         tree_list = self.get_skill_tree_list(uid, template_id)

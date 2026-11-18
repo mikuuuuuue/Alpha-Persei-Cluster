@@ -810,6 +810,10 @@ CREATE TABLE IF NOT EXISTS monster_cosplay_progress (-- sc_17865 怪物扮演玩
     score INTEGER DEFAULT 0,
     score2 INTEGER DEFAULT 0,
     flag INTEGER DEFAULT 0,
+    unlocked_affixes TEXT,
+    completed_stages TEXT,
+    stage_scores TEXT,
+    skill_enhance_times INTEGER,
     update_ts INTEGER DEFAULT 0,
     PRIMARY KEY (uid, activity_id, chapter_id)
 );
@@ -1614,6 +1618,10 @@ CREATE TABLE IF NOT EXISTS abyss_layer_stage (       -- sc_55001 深渊层关卡
     layer_id INTEGER NOT NULL,
     stage_id INTEGER NOT NULL,                       -- 3060004
     is_completed INTEGER DEFAULT 0,
+    is_boss INTEGER DEFAULT 0,
+    score INTEGER,
+    phase INTEGER,
+    boss_hp_rate INTEGER,
     update_ts INTEGER DEFAULT 0,
     PRIMARY KEY (uid, layer_id, stage_id)
 );
@@ -2430,6 +2438,14 @@ _COLUMN_MIGRATIONS = [
     ("game_user", "last_login_task_cycle_ts", "INTEGER DEFAULT 0"),
     ("task_cfg", "additional_parameter", "TEXT DEFAULT '[]'"),
     ("friend_chat", "peer_uid", "INTEGER DEFAULT 0"),
+    ("abyss_layer_stage", "is_boss", "INTEGER DEFAULT 0"),
+    ("abyss_layer_stage", "score", "INTEGER"),
+    ("abyss_layer_stage", "phase", "INTEGER"),
+    ("abyss_layer_stage", "boss_hp_rate", "INTEGER"),
+    ("monster_cosplay_progress", "unlocked_affixes", "TEXT"),
+    ("monster_cosplay_progress", "completed_stages", "TEXT"),
+    ("monster_cosplay_progress", "stage_scores", "TEXT"),
+    ("monster_cosplay_progress", "skill_enhance_times", "INTEGER"),
 ]
 
 
@@ -6698,8 +6714,10 @@ class AccountDB:
 
         need_save = False
 
+        captured = self.get_system_config('save.profile') == 'capture_import_v1'
+
         # 1. 跨周检测 (周四 05:00 刷新)
-        if reset_current or refresh_ts != next_weekly_rf:
+        if reset_current or (refresh_ts != next_weekly_rf and (not captured or now_ts >= refresh_ts)):
             if reset_current or now_ts >= refresh_ts:
                 today_score = 0
                 sum_score = 0
@@ -6708,18 +6726,20 @@ class AccountDB:
             need_save = True
 
         # 2. 跨日检测 (每日 05:00 刷新)
-        if last_day != today_tag:
+        same_day = last_day == today_tag
+        if not same_day:
             today_score = 0
             last_day = today_tag
             need_save = True
 
         # 3. 动态属性更新（每日关卡、倍率与词缀）
-        if prog_stage != current_stage or prog_rate != current_rate:
+        if (not captured or not same_day) and (prog_stage != current_stage or prog_rate != current_rate):
             prog_stage = current_stage
             prog_rate = current_rate
             need_save = True
 
-        if now_ts >= prog_affix_ts or not prog_affixes or prog_affixes != current_affixes or prog_affix_ts != next_affix_rf:
+        if (now_ts >= prog_affix_ts or not prog_affixes
+                or (not captured and (prog_affixes != current_affixes or prog_affix_ts != next_affix_rf))):
             prog_affixes = current_affixes
             prog_affix_ts = next_affix_rf
             need_save = True

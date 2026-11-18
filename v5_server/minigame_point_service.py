@@ -48,7 +48,9 @@ def _claim(ctx,uid,reward_ids):
     visible={int(r['activity_id']) for r in get_activity_list(ctx.db,uid)
              if r.get('state')==1 and int(r.get('start_time') or 0)<=now
              and (not r.get('stop_time') or int(r['stop_time'])>now)}
-    claimed={int(r['reward_id']) for r in ctx.db.query('SELECT reward_id FROM activity_point_reward WHERE uid=?',(uid,))}
+    claimed={int(r['reward_id']) for r in ctx.db.query(
+        'SELECT reward_id FROM activity_point_reward WHERE uid=? UNION '
+        'SELECT reward_id FROM activity_reward WHERE uid=?', (uid, uid))}
     special={}
     for activity,table,column in ((321201,'skuld_progress','reward_list'),(1101,'rogueteam_user','rewarded_list_json')):
         if not any(row['activity_id']==activity for _,row in selected):continue
@@ -72,6 +74,8 @@ def _claim(ctx,uid,reward_ids):
             if item:balances[source]=InventoryService.get_item_balance(ctx.db,uid,item)[1]
             else:
                 rows=ctx.db.query('SELECT point FROM activity_point WHERE uid=? AND activity_id=?',(uid,activity))
+                if not rows:
+                    rows=ctx.db.query('SELECT score AS point FROM activity_score WHERE uid=? AND score_key=?', (uid,activity))
                 balances[source]=int(rows[0]['point'] or 0) if rows else 0
         require(balances[source]>=int(row['need']),'活动积分未达奖励条件')
 
@@ -79,6 +83,9 @@ def _claim(ctx,uid,reward_ids):
     for rid,row in selected:
         ctx.db.execute('INSERT INTO activity_point_reward(uid,activity_id,reward_id,update_ts) VALUES(?,?,?,?)',
                        (uid,int(row['activity_id']),rid,now))
+        if row['activity_id'] in (323801, 321201):
+            ctx.db.execute('INSERT INTO activity_reward(uid,reward_id,update_ts) VALUES(?,?,?)',
+                           (uid,rid,now))
         for iid,num in row['reward']:rewards[iid]+=num
         if row['activity_id'] in special:special[row['activity_id']].append(rid)
     if 321201 in special:

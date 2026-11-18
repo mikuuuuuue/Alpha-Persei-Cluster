@@ -146,7 +146,7 @@ def _dream(db, uid, now, start):
 
 
 def _iteration(db, uid, now, start):
-    cycle = weekly.get_core_verification_cycle(now)
+    cycle, _, _ = weekly.get_core_verification_period(db, uid, now)
     cleared = {int(x['info_id']) for x in db.query(
         'SELECT info_id FROM core_verification_stage_record WHERE uid=? AND cycle=? AND sign=1', (uid, cycle))}
     boss_one, boss_two = weekly.get_core_verification_stages(cycle)
@@ -253,7 +253,7 @@ def _revision(db, uid, kind):
 
 
 def _token(db, uid, kind, start, now):
-    rotation = weekly.get_core_verification_cycle(now) if kind == 'iteration' else 0
+    rotation = weekly.get_core_verification_period(db, uid, now)[0] if kind == 'iteration' else 0
     path = os.path.normcase(os.path.realpath(db.path))
     identity = json.dumps((path, uid, kind, start, rotation, _revision(db, uid, kind)[1]))
     return sha256(identity.encode('utf-8')).hexdigest()
@@ -293,7 +293,7 @@ def reset(db, uid, kind, token, now_ts=None):
         elif kind == 'dream':
             db.check_and_lazy_refresh_boss_challenge(uid, now, reset_current=True)
         elif kind == 'iteration':
-            cycle = weekly.get_core_verification_cycle(now)
+            cycle, _, _ = weekly.get_core_verification_period(db, uid, now)
             db.reset_core_verification_challenge(uid, cycle, 0)
             db.execute('DELETE FROM core_verification_claimed_tasks WHERE uid=? AND cycle=?', (uid, cycle))
         elif kind == 'polyhedron':

@@ -184,6 +184,7 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
     # 中索引 ActivityCfg[nil] 并卡死大厅 Loading。这里必须跳过整帧，不能返回 None 走 blob 兜底。
     login_ver_cfg = _rvm.get_version_config(login_res_version)
     suppressed_cmds = set(login_ver_cfg.get("suppressed_cmds", set()))
+    capture_save = db is not None and db.get_system_config('save.profile') == 'capture_import_v1'
     sent = dyn_hit = 0
     sock.settimeout(5)
 
@@ -304,6 +305,8 @@ def send_login_flood(sock, db, uid, generator, frame_delay=0.001, log=None):
                 raise RuntimeError('sc_10201 当前登录时钟生成失败')
             if cmd == 43001 and dynamic and not gen:
                 raise RuntimeError('sc_43001 当前刻印副本状态生成失败')
+            if capture_save and dynamic and payload_json is None and gen is None:
+                raise RuntimeError(f'sc_{cmd} 恢复状态生成失败')
             if cmd in (34031, 34023, 34025, 34101) and gen is None:
                 raise RuntimeError(f'sc_{cmd} 权益状态生成失败，拒绝回退录制状态')
             if cmd in (24029, 24061) and gen is None:

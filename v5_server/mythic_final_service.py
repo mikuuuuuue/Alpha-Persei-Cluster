@@ -24,9 +24,23 @@ def definition(difficulty):
     return row
 
 
-def stages(difficulty):
+def captured_stages(db, uid):
+    if db is None or db.get_system_config('save.profile') != 'capture_import_v1':
+        return {}
+    import time
+    public = db.get('mythic_public', uid) or {}
+    if int(public.get('next_refresh_ts') or 0) <= int(time.time()):
+        return {}
+    return {int(row['item_id']): json.loads(row['value_json']) for row in db.query(
+        "SELECT item_id,value_json FROM ops_common WHERE uid=? AND kind='mythic_final_rotation'", (uid,))}
+
+
+def stages(difficulty, *, rotation=None):
     import mythic_affix_cfg
     choices=definition(difficulty)['stages']
+    imported = (rotation or {}).get(int(difficulty))
+    if imported in choices:
+        return imported
     return list(choices[mythic_affix_cfg.get_semiweekly_cycle_info()[0] % len(choices)])
 
 
@@ -58,7 +72,7 @@ def generation(db,uid):
 
 def entry(db,uid,stage,activity=0):
     progress=db.get_mythic_final_progress(uid)
-    diff=int(progress['now_difficulty']);route=stages(diff);stage=int(stage);activity=int(activity or 0)
+    diff=int(progress['now_difficulty']);route=stages(diff, rotation=captured_stages(db, uid));stage=int(stage);activity=int(activity or 0)
     # 原生activity是105，不是热度；兼容旧测试端传当前热度及省略activity。
     if activity not in (0,105,diff):raise ValueError('失序深区活动或档位不匹配')
     if stage in route:team=route.index(stage)+1

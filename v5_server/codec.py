@@ -81,6 +81,20 @@ def _ensure_schema():
         if "sc_85001" in ds.SCHEMA and 2 in ds.SCHEMA["sc_85001"]:
             ds.SCHEMA["sc_85001"][2]["ref"] = "p85_chess_map_net_rec"
 
+        # p89's native history differs from the generic battle_record schema.
+        ds.SCHEMA['p89_battle_record'] = {
+            1: dict(name='time', number=1, type='uint32', label='required'),
+            2: dict(name='result', number=2, type='uint32', label='required'),
+            3: dict(name='auto_chessboard_info', number=3, type='message', label='required', ref='auto_chessboard'),
+            4: dict(name='point', number=4, type='uint32', label='required'),
+            5: dict(name='point_detail', number=5, type='message', label='repeated', ref='chess_kv'),
+            6: dict(name='medal_ids', number=6, type='uint32', label='repeated'),
+        }
+        for command, fields in (('sc_89207', (2, 3)), ('sc_89211', (2,))):
+            for field in fields:
+                if field in ds.SCHEMA.get(command, {}):
+                    ds.SCHEMA[command][field]['ref'] = 'p89_battle_record'
+
         # 补充/消除因果观测（WarChess 49xxx）协议歧义
         ds.SCHEMA["p49_chess_map_net_rec"] = {
             1: {"name": "activity_id", "number": 1, "type": "uint32", "label": "required", "ref": None},

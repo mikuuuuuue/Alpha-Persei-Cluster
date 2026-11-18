@@ -133,11 +133,16 @@ def _weighted(candidates, cfg, rng):
     raise AssertionError('unreachable weighted selection')
 
 
-def _available(cfg, state):
+def unlocked_pool_stages(cfg, state):
     unlocked = {1}
     for stage, trigger in cfg['stage_unlock'].items():
         if state[int(trigger)]['drawn_num'] > 0:
             unlocked.add(int(stage))
+    return unlocked
+
+
+def _available(cfg, state):
+    unlocked = unlocked_pool_stages(cfg, state)
     return [s for s in state.values() if s['remain_num'] > 0
             and cfg['drops'][str(s['drop_id'])]['pool_stage'] in unlocked]
 
@@ -191,7 +196,9 @@ def completed_story_ids(db, uid, version=None):
 def story_snapshot(db, uid, activity_id, version=None):
     # The client keeps one shared finishedStory_ array and filters it by main
     # activity when reading. Every 68161 replaces that array, rather than merging.
-    return dict(activity_id=int(activity_id), story_stage=0, finished_story=sorted(completed_story_ids(db, uid, version)))
+    row = db.get('skin_draw_story', uid, 'AND activity_id=?', (activity_id,)) or {}
+    return dict(activity_id=int(activity_id), story_stage=int(row.get('story_stage') or 0),
+                finished_story=sorted(completed_story_ids(db, uid, version)))
 
 
 def merge_activities(activity_list, version=None):

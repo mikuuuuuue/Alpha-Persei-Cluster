@@ -420,10 +420,11 @@ def get_mythic_data(uid, db):
         })
         
     user_diff = 10 # 默认选中难度 10 (可自由切换 1~13 档)
-    
+    public = {}
     if db:
         try:
             pub_rows = db.query("SELECT * FROM mythic_public WHERE uid=?", (uid,))
+            public = pub_rows[0] if pub_rows else {}
             if pub_rows and pub_rows[0].get("current_difficulty") is not None and pub_rows[0].get("current_difficulty") > 0:
                 user_diff = pub_rows[0].get("current_difficulty")
         except Exception:
@@ -438,6 +439,26 @@ def get_mythic_data(uid, db):
         "next_refresh_timestamp": rot["next_refresh_timestamp"],
         "recommend_team": rot["recommend_team"]
     }
+    captured = db is not None and db.get_system_config('save.profile') == 'capture_import_v1'
+    if captured and int(public.get('next_refresh_ts') or 0) > now:
+        groups = {}
+        for row in db.query('SELECT * FROM mythic_partition WHERE uid=? ORDER BY difficulty,partition_id', (uid,)):
+            difficulty = row['difficulty']
+            group = groups.setdefault(difficulty, dict(difficulty=difficulty, sub_partition_list=[]))
+            part = dict(partition=row['partition_id'], stage_id=row['stage_id'])
+            if row['kind'] == 'main':
+                group['main_partition'] = part
+            else:
+                group['sub_partition_list'].append(part)
+        if groups:
+            sc_44007_obj['difficulty_list'] = list(groups.values())
+            sc_44007_obj['next_refresh_timestamp'] = public['next_refresh_ts']
+            sc_44007_obj['recommend_team'] = [public['recommend_team_1'], public['recommend_team_2']]
+            affixes = db.query('SELECT * FROM mythic_affix WHERE uid=? ORDER BY affix_id', (uid,))
+            for kind, field in (('advantage', 'superiority_affix_list'), ('inferiority', 'inferiority_affix_list'),
+                                ('ultimate', 'mythic_ultimate_affix_list')):
+                sc_44007_obj[field] = [dict(id=row['affix_id'], level=row['level'], type=row['aff_type'])
+                                      for row in affixes if row['affix_kind'] == kind]
     
     # sc_44009: 常规黑区通关分区、星数与已领奖励
     from mythic_normal_service import payload as normal_payload
@@ -449,11 +470,19 @@ def get_mythic_data(uid, db):
         "difficulty": user_diff,
         "is_new_difficulty": False
     }
+    if captured and public:
+        opened = db.query('SELECT difficulty_id FROM mythic_difficulty WHERE uid=? AND is_open=1 '
+                          'ORDER BY difficulty_id DESC', (uid,))
+        if opened:
+            sc_44019_obj['open_difficulty_list'] = [row['difficulty_id'] for row in opened]
+            sc_44019_obj['difficulty'] = int(public.get('current_difficulty') or 0)
+            sc_44019_obj['is_new_difficulty'] = bool(public.get('is_new_difficulty'))
     
     # sc_44021: 30 档最终失序深区关卡列表 (1~19 档单关，20~30 档双关)
-    from mythic_final_service import catalog as final_catalog, profile as final_profile
+    from mythic_final_service import captured_stages, catalog as final_catalog, profile as final_profile, stages
     final_rows = final_catalog()[final_profile()]['difficulties']
-    stage_list = [dict(difficulty_id=int(d), stage_id=final_rows[d]['stages'][rot['cycle_id'] % len(final_rows[d]['stages'])])
+    final_rotation = captured_stages(db, uid)
+    stage_list = [dict(difficulty_id=int(d), stage_id=stages(d, rotation=final_rotation))
                   for d in sorted(final_rows,key=int)]
         
     sc_44021_obj = {
@@ -626,6 +655,20 @@ def get_core_verification_cycle(now_ts=None):
     cycle_idx = int((now_ts - base_anchor) // 604800)
     return (cycle_idx % 16) + 1
 
+
+def get_core_verification_period(db, uid, now_ts=None):
+    now = int(time.time() if now_ts is None else now_ts)
+    if db is not None:
+        row = db.get('ops_common', uid, "AND kind='core_verification_rotation' AND item_id='current'")
+        if row:
+            period = json.loads(row['value_json'])
+            refresh = period['refresh_timestamp']
+            if refresh - 7 * 86400 <= now < refresh:
+                return period['now_cycle'], period['next_cycle'], refresh
+    cycle = get_core_verification_cycle(now)
+    return cycle, (cycle % 16) + 1, get_next_thursday_5am(now)
+
+
 def calc_core_verification_super_score(info_id, diff=8, battle_time_ms=0, affix_list=None):
     """
     核算极值挑战得分：
@@ -665,10 +708,7 @@ def get_core_verification_data(uid, db):
     - affix_list: 玩家保存的自选词缀
     - max_score_info: {lock_list: [{boss_type: 1, hero_list: [...], score: ...}, ...]}
     """
-    now = int(time.time())
-    next_rf = get_next_thursday_5am(now)
-    now_cycle = get_core_verification_cycle(now)
-    next_cycle = (now_cycle % 16) + 1
+    now_cycle, next_cycle, next_rf = get_core_verification_period(db, uid)
 
     b1_stages, b2_stages = get_core_verification_stages(now_cycle)
 
@@ -850,6 +890,7 @@ def get_core_verification_challenge_data(uid, db, activity_id=None):
         # Mode 4 (sc_89801)
         from core_mode4_reward_service import task_states
         task_items = task_states(db, uid, activity_id) if db is not None else []
+        meta = (db.get('cvm4_meta', uid) or {}) if db is not None else {}
         c_stages = []
         for s in common_stage_data_list:
             c_stages.append({
@@ -859,8 +900,8 @@ def get_core_verification_challenge_data(uid, db, activity_id=None):
         sc_obj = {
             "common_stages": c_stages,
             "finish_assignment_list": task_items,
-            "first_enter": False,
-            "max_point": int(main_prog.get("score", 0))
+            "first_enter": bool(meta.get('first_enter')),
+            "max_point": max(int(main_prog.get('score', 0)), int(meta.get('max_point') or 0))
         }
 
     sc_89021_obj = {

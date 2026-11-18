@@ -1807,7 +1807,7 @@ def _settle_frames(ctx, uid, bid, result, dest, times=1, heroes=None, sweep=Fals
             elif is_core_verification:
                 # 迭代校验常规关卡结算
                 import weekly_challenge_service as _wcs
-                cur_cycle = _wcs.get_core_verification_cycle()
+                cur_cycle, _, _ = _wcs.get_core_verification_period(ctx.db, uid)
                 raw_btime = int(battle_info.get("battle_time") or 30000)
                 
                 cat = _wcs.get_core_verification_catalog()
@@ -2707,6 +2707,12 @@ def _rogue_battle_rejection(ctx,uid,bid,dest,reason):
     except Exception as exc:ctx.log(f'[rogue] 状态恢复失败: {exc}','WARN')
     ctx.log(f'[rogue] 拒绝旧战斗{bid}: {reason}','WARN')
     return CSResponse(frames+[DownFrame(54033,_settlement_error_payload(bid,dest))])
+
+
+def h_42002(req, ctx):
+    """Load the current enchantment groups when the account has a saved selection."""
+    payload = ctx.generator.gen_payload(42001, uid=req.uid, db=ctx.db) if ctx.generator and ctx.db else None
+    return CSResponse([DownFrame(42001, payload)]) if payload is not None else CSResponse(reply=False)
 
 
 def h_43002(req, ctx):
@@ -3989,6 +3995,7 @@ CORE_HANDLERS = {
     28010: h_28010,   # 单个任务提交
     54034: h_54034,   # 剧情战斗入口
     54032: h_54032,   # 战斗结算 + 推送
+    42002: h_42002,   # 联合特勤关卡组
     43002: h_43002,   # 战斗装备
     54030: h_54030,   # 普通战斗入口
     54300: h_54300,   # 战斗初始化（不回包）

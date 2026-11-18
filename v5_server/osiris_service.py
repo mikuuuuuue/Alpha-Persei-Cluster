@@ -216,6 +216,8 @@ def settle(ctx,uid,stage,activity,result,report):
         if newchapters:push(68175,dict(pass_chapters=newchapters))
         push(68177,dict(pass_stage=current))
         if count!=oldcount:
+            ctx.db.upsert('activity_score',uid,dict(score_key=ACTIVITY,score=count,update_ts=int(time.time())),
+                          keys=('uid','score_key'))
             push(60105,dict(score_info_list=[dict(key=ACTIVITY,score=count)]))
             # Osiris' own record page reads 60201, not ActivityPointData's 60105.
             push(60201,point_payload(ctx.db,uid))

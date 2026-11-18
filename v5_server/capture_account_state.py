@@ -4,116 +4,50 @@ from copy import deepcopy
 
 
 DOMAIN_COMMANDS = {
-    'profile': (12029, 12033, 12039, 12045, 12089, 13057, 14201, 14501, 14503, 21001, 32009, 32011),
-    'collections': (12001, 12011, 12111, 50001, 52001, 52021, 52025, 53001, 56001),
-    'entitlements': (11013, 11015, 17027, 17033, 34007, 34023, 34031, 34101),
+    'clock': (10503,),
+    'profile': (12019, 12029, 12033, 12039, 12045, 12089, 12099, 13057, 14201, 14501, 14503, 21001,
+                23015, 32009, 32011, 81001),
+    'collections': (12001, 12011, 12111, 12123, 50001, 52001, 52021, 52025, 53001, 56001),
+    'entitlements': (11013, 11015, 15007, 17021, 17027, 17033, 34007, 34021, 34023, 34031, 34101),
     'backhome': (58001, 58063),
-    'progress': (25009, 43001, 47001, 47003, 63005),
-    'games': (24051, 61047, 68171, 68181, 83026, 83124, 84331, 89011, 89401, 89601, 89701),
-    'exploration': (24029, 24043, 24061, 28801, 28837, 49001, 79601, 86035),
+    'progress': (25009, 42001, 43001, 47001, 47003, 51001, 63005, 80115),
+    'games': (24019, 24051, 61047, 68171, 68181, 83026, 83124, 84331, 89011, 89401, 89421, 89601, 89701),
+    'exploration': (24029, 24043, 24045, 24061, 28801, 28837, 49001, 79601, 86035),
     'communications': (12023, 12119, 28001, 30017, 73001, 73005, 73007, 91001),
-    'activities': (11001, 18001, 35011, 44007, 44019, 44023, 45201, 48001, 48003, 55001,
-                   59001, 62019, 64031, 83020, 83021, 85101, 86037, 88305, 88309,
-                   88315, 89101, 89125, 89201, 90051, 89021),
+    'activities': (11071, 18001, 35011, 44007, 44009, 44019, 44021, 44023, 45201, 48001, 48003, 55001,
+                   59001, 60105, 60107, 62019, 64031, 75009, 75017, 83020, 83021, 83401, 85035, 85101, 85105, 86037, 88305, 88309,
+                   88315, 89101, 89125, 89201, 89207, 89801, 90051, 89021),
     'idol': (58169, 58173, 58189, 58191, 58195, 58203),
-    'rogueteam': (88001, 88013, 88019, 88029),
+    'rogueteam': (88001, 88013, 88019, 88023, 88029),
     'admin_cat': (67001,),
+    'skin_draw': (68151, 68155, 68161),
 }
 ACCOUNT_COMMANDS = frozenset(cmd for commands in DOMAIN_COMMANDS.values() for cmd in commands)
 
-PARTIAL_COMMANDS = {
-    16015: dict(
-        fields_restored=('draw_info_list',),
-        missing_fields=('since_sr', 'is_up_guaranteed'),
-        reason='抽取记录缺少保底状态；up_times 不能当作总抽数。',
-        recapture='如需抽卡历史，可选补抓记录查询；重复 16015 不会提供隐藏保底字段。'),
-    75009: dict(
-        fields_restored=('now_cycle', 'next_cycle', 'stage_info', 'reward_list',
-                         'lock_list', 'refresh_timestamp', 'max_score_info'),
-        missing_fields=('完整登录响应结构',),
-        reason='来源关卡与奖励字段已持久化；当前生成器尚不能逐值重建全部来源响应。零进度保持原值。',
-        recapture='无需为了补抓制造通关记录；先完成现有载荷与消费者的对应核验。'),
-    83020: dict(
-        fields_restored=('activity_id', 'fight_cnt', 'score_info_list', 'is_start',
-                         'got_award_cfg_list'),
-        missing_fields=('多阶段持久结构',),
-        reason='现有 Boss 表与来源多阶段结构不能完整对应。',
-        recapture='现有来源已含多阶段数据；先补字段映射，无需为恢复已有状态重新战斗。'),
-    85035: dict(fields_restored=(), missing_fields=('章节状态',),
-                reason='载荷只有 chapter_id，持久语义未闭合。',
-                recapture='先核对已抓章节与现有局内模型；只有界面显示进行中且缺局内详情时再补抓。'),
-    85105: dict(fields_restored=(), missing_fields=('选项状态',),
-                reason='载荷只有 opt_list，未确认其与持久表的对应关系。',
-                recapture='现有 opt_list 已保存；先审核消费字段，无需重复执行选项操作。'),
-    89421: dict(fields_restored=(), missing_fields=('多阶段 Boss 战状态',),
-                reason='载荷含多阶段 Boss 状态，现有表不能无损承接。',
-                recapture='现有载荷已含关卡、Boss、血量和成绩；先补持久映射，无需重新挑战。'),
-    89801: dict(fields_restored=(), missing_fields=('持久进度',),
-                reason='载荷 first_enter/max_point 的持久消费者尚未闭合。',
-                recapture='先核对当前成绩；实际为 0 时保留原值，无需创建新成绩。'),
-    60105: dict(fields_restored=(), missing_fields=('常驻积分',),
-                reason='来源 repeated score_info_list 为空；当前生成器会混入其他活动积分，完整投影尚未闭合。',
-                recapture='已有登录载荷，先修复积分投影；无需为了补抓新增积分。'),
-    60107: dict(fields_restored=(), missing_fields=('已领奖励',),
-                reason='来源 repeated reward_info_list 为空；当前生成器还会输出其他活动的领奖记录。',
-                recapture='已有登录载荷，先核对领奖记录归属；无需为补抓领取奖励。'),
-    89101: dict(fields_restored=(), missing_fields=('进行中棋局',),
-                reason='棋盘载荷存在，但 89125.state=0；不能把已结束的局恢复为进行中。',
-                recapture='如确有进行中棋局，在同一登录会话补抓非零 89125 与对应 89101。'),
-    11001: dict(
-        fields_restored=('activity_list',),
-        missing_fields=('当前客户端目录未展示的来源活动响应',),
-        reason='来源活动行已写入 activity；当前客户端目录只回放其中有效活动。',
-        recapture='如需核验全部活动响应，使用匹配来源版本的客户端资源目录补抓。'),
-    35011: dict(
-        fields_restored=('stage_id', 'challenge_rate', 'affix_info', 'today_max_score',
-                         'sum_score', 'refresh_timestamp', 'got_reward_id_list'),
-        missing_fields=('捕获周期的每日关卡和词缀轮换',),
-        reason='持久分数和奖励已恢复；当前登录按新周期生成关卡与词缀。',
-        recapture='已抓到来源周期数据；先修复周期投影，无需重复登录。'),
-    44007: dict(
-        fields_restored=('difficulty_list', 'next_refresh_timestamp', 'recommend_team',
-                         'affix_list'),
-        missing_fields=('捕获周期的轮换布局',),
-        reason='当前周期生成新的轮换布局，不能证明与来源逐值相同。',
-        recapture='已抓到来源周期数据；先核对轮换投影，无需重复登录。'),
-    44019: dict(
-        fields_restored=('difficulty', 'is_new_difficulty', 'open_difficulty_list'),
-        missing_fields=('捕获周期的轮换状态',),
-        reason='当前周期生成新的轮换状态，不能证明与来源逐值相同。',
-        recapture='已抓到来源周期数据；先核对轮换投影，无需重复登录。'),
-    44023: dict(
-        fields_restored=('now_difficulty', 'difficulty_id_can_choose', 'receive_reward',
-                         'clear_list', 'challenge_info', 'is_new_difficulty'),
-        missing_fields=('捕获周期的轮换进度',),
-        reason='持久进度已写入；当前周期仍会改变部分轮换字段。',
-        recapture='已抓到来源周期数据；先核对轮换投影，无需重复登录。'),
-    55001: dict(
-        fields_restored=('activity_id', 'is_back', 'history_max_layer',
-                         'layer_reset_time', 'stage_reset_time',
-                         'last_version_max_unlock_layer', 'refresh_timestamp',
-                         'layer_info_list', 'got_reward_id_list'),
-        missing_fields=('完整登录响应结构',),
-        reason='持久层字段已恢复；当前消费者尚不能逐值重建完整来源响应。',
-        recapture='已有完整来源载荷；先修复响应映射，无需重复登录。'),
-    59001: dict(
-        fields_restored=('newbie_sign', 'newbie_level_reward', 'newbie_recharge_reward',
-                         'trigger_time', 'is_completed'),
-        missing_fields=('完整登录响应结构',),
-        reason='新手活动持久字段已恢复；当前版本默认生成结构不能逐值回放来源响应。',
-        recapture='已有来源载荷；先修复版本响应映射。'),
-    88305: dict(
-        fields_restored=('template_id', 'difficult', 'max_difficult', 'his_difficult',
-                         'his_avg', 'collection_list', 'view_collection', 'tree_list',
-                         'last_id'),
-        missing_fields=('unlock_collection 的来源精确列表',),
-        reason='来源图鉴项已写入持久表；当前客户端为防崩溃下发兼容超集。',
-        recapture='无需补抓；按当前客户端目录核验持久图鉴项。'),
+LOCAL_COMMANDS = {
+    10600: '系统开放由本地目录和联机隔离策略决定。',
+    11001: '来源活动逐行入库。登录应用当前资源版本的活动目录和时限。',
+    20007: '商店商品目录从当前版本生成。个人购买记录由 20009 恢复。',
+    49023: '来源开放时间逐章核对。本地目录可包含更多可用章节。',
 }
 
-EVIDENCE_ONLY_COMMANDS = {
-    89207: dict(reason='历史战绩没有现有持久表。', recapture=''),
-    30099: dict(reason='公告属于静态内容，按原始证据保存。', recapture=''),
+EXCLUDED_COMMANDS = {
+    12097: '推荐组合与比例是服务端统计。Cultivate 推荐读取统计缓存。',
+    19029: '好友和黑名单含其他账号标识。本地仅初始化 NPC 聊天。',
+    19039: '玩家之间的离线消息受联机隔离规则限制。',
+    30099: 'BulletinAction 消费全服公告。公告与邮件及个人进度独立。',
+    40021: 'OperationData 用这组 ID 控制官方运营入口。',
+    40023: 'SurveyData 用此状态显示官方预约结果。',
+    40033: 'OperationData 用媒体列表控制官方关注入口。',
+    40035: 'OperationData 和 ActivityAction 消费官方暂停配置。本地仍应用系统开放和联机策略。',
+}
+
+PARTIAL_COMMANDS = {
+    16015: dict(
+        fields_restored=(),
+        missing_fields=('since_sr', 'is_up_guaranteed', '抽取历史'),
+        reason='登录只提供可见卡池计数。缺少两种保底状态，不能恢复抽取账本。',
+        recapture='需要每个相关卡池的抽取历史或可核验的保底状态。'),
 }
 
 def _equip_dungeon_gap(packets, timestamp):
@@ -130,6 +64,63 @@ def _equip_dungeon_gap(packets, timestamp):
     return ''
 
 
+def _skin_pool_rows(packets, resource_version):
+    from skin_draw_service import active_pools, unlocked_pool_stages
+
+    pools = {cfg['activity_id'][0]: cfg for cfg in active_pools(resource_version).values()
+             if cfg['model'] != 'oath'}
+    rows, gaps = [], []
+    for packet in packets:
+        activity_id = packet['activity_id']
+        cfg = pools.get(activity_id)
+        remaining = {item['drop_id']: item['num'] for item in packet.get('info', [])}
+        totals = {int(key): drop['total'] for key, drop in cfg['drops'].items()} if cfg else {}
+        if (not cfg or packet.get('draw_info2') or not remaining.keys() <= totals.keys()
+                or len(remaining) != len(packet.get('info', []))
+                or any(not 0 <= value <= totals[drop] for drop, value in remaining.items())):
+            gaps.append(activity_id)
+            continue
+        state = {drop: dict(drawn_num=total - remaining.get(drop, total)) for drop, total in totals.items()}
+        unlocked = unlocked_pool_stages(cfg, state)
+        if any(cfg['drops'][str(drop)]['pool_stage'] in unlocked for drop in totals.keys() - remaining.keys()):
+            gaps.append(activity_id)
+            continue
+        rows.extend((cfg['pool_id'], drop, value, totals[drop] - value) for drop, value in remaining.items())
+    return rows, gaps
+
+
+def _enchantment_selection(packets):
+    if len(packets) != 1:
+        return None
+    row = packets[0]
+    groups = row.get('enchantment_battle_list', [])
+    if len(groups) != 3 or len(set(groups)) != 3 or any(group <= 0 for group in groups):
+        return None
+    return dict(enchantment_battle_list=groups, free_refreshed_times=row.get('free_refreshed_times', 0),
+                all_buy_refreshed_times=row.get('all_buy_refreshed_times', 0))
+
+
+def _iteration_gap(packets, timestamp):
+    from weekly_challenge_service import get_core_verification_rewards_catalog, get_core_verification_stages
+
+    if len(packets) != 1:
+        return '缺少唯一的迭代校验常规快照。'
+    row = packets[0]
+    if not (1 <= row.get('now_cycle', 0) <= 16 and 1 <= row.get('next_cycle', 0) <= 16
+            and timestamp < row.get('refresh_timestamp', 0) <= timestamp + 7 * 86400):
+        return '来源周期或刷新时间不在已审核范围。'
+    stage_ids = {stage['id'] for group in get_core_verification_stages(row['now_cycle']) for stage in group}
+    if any(stage['id'] not in stage_ids for stage in row.get('stage_info', [])):
+        return '来源关卡与周期目录不符。'
+    rewards = get_core_verification_rewards_catalog()
+    if any(str(reward) not in rewards for reward in row.get('reward_list', [])):
+        return '已领取奖励缺少本地目录。'
+    if any(entry.get('score') or entry.get('hero_list')
+           for entry in (row.get('max_score_info') or {}).get('lock_list', [])):
+        return '独立极值评分还需核对出战编队和成绩字段。'
+    return ''
+
+
 def recovery_manifest(snapshot):
     """List the evidence disposition without implying that a missing field is empty."""
     from capture_import import MAPPED_COMMANDS
@@ -138,7 +129,7 @@ def recovery_manifest(snapshot):
     records = []
     for command in sorted(snapshot.protocol_data):
         domain = next((name for name, commands in DOMAIN_COMMANDS.items() if command in commands), '')
-        details = PARTIAL_COMMANDS.get(command) or EVIDENCE_ONLY_COMMANDS.get(command, {})
+        details = PARTIAL_COMMANDS.get(command, {})
         if command in (30003, 30021):
             domain = 'mailbox'
             if command == 30021 and any(not row['content_list'] for row in snapshot._collected_mail_records):
@@ -152,16 +143,81 @@ def recovery_manifest(snapshot):
         elif command == 43001 and (gap := _equip_dungeon_gap(snapshot.protocol_data, snapshot.end_frame.timestamp)):
             status = 'partial'
             details = dict(reason=gap, missing_fields=('可核验的刻印副本快照',))
+        elif command == 42001 and _enchantment_selection(snapshot.protocol_data[command]) is None:
+            status = 'partial'
+            details = dict(reason='联合特勤缺少一份含三个不同关卡组的完整状态。')
+        elif command == 85035 and snapshot.protocol_data[command] != [{'chapter_id': 0}]:
+            status = 'partial'
+            details = dict(reason='进行中的棋盘还需要局内地图和任务数据。',
+                           missing_fields=('局内棋盘状态',))
+        elif command == 80115 and any(row.get('value_list') for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='新版战棋存在局内进度，当前存档缺少可继续的地图状态。')
+        elif command == 17021 and any(row.get('instance_list') for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='福袋有待选择实例，需要核对道具使用与实例消费。')
+        elif command == 12099 and any(row.get('hide_list') for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='隐藏列表包含启用项，须核对目标版本的类型和 ID。')
+        elif command == 68151 and (gaps := _skin_pool_rows(snapshot.protocol_data[command], snapshot.resource_version)[1]):
+            status = 'partial'
+            details = dict(reason='奖池数量与目标目录不符。', missing_fields=[f'活动 {key}' for key in gaps])
+        elif command == 68155 and any(row.get('skin_id') for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='有待确认的换装奖励，须关联本地剧情道具。')
+        elif command == 75017 and any(row.get('challenge_stage') or row.get('info_list') or row.get('max_score_list')
+                                      for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='心魔挑战已有队伍或成绩，须核对逐难度持久状态。')
+        elif command == 75009 and (gap := _iteration_gap(snapshot.protocol_data[command], snapshot.end_frame.timestamp)):
+            status = 'partial'
+            details = dict(reason=gap)
+        elif command == 24019 and any(row.get('travel_state') or row.get('plot_id')
+                                      for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='旅行正在进行，需核对旅程跳转和当前选项。')
+        elif command == 88023 and snapshot.protocol_data[command] != [{'event_id': 0}]:
+            status = 'partial'
+            details = dict(reason='虚构推演事件需要对应局内房间和待选项。')
+        elif command == 88305 and any('collection_list' not in row for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='图鉴分组列表缺少完整来源。')
+        elif command == 89101 and not (
+                len(snapshot.protocol_data.get(89125, [])) == 1
+                and snapshot.protocol_data[89125][0].get('state') == 0):
+            status = 'partial'
+            details = dict(reason='自走棋进行中快照需要有效的局内身份和结算状态。')
+        elif command == 89801 and any(row.get('common_stages') or row.get('finish_assignment_list')
+                                      for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='挑战分组锁定和任务状态需要逐队伍映射。')
+        elif command == 89207 and any(row.get('result') != 0 for row in snapshot.protocol_data[command]):
+            status = 'partial'
+            details = dict(reason='历史战绩响应失败。', recapture='补抓成功的历史战绩响应。')
+        elif command == 89421 and any(
+                row.get('challenge_hero_stage_info') or row.get('last_status')
+                or any(boss.get('score') for boss in row.get('challenge_boss_list', []))
+                for packet in snapshot.protocol_data[command]
+                for row in packet.get('challenge_stage_info', [])):
+            status = 'partial'
+            details = dict(reason='挑战正在进行，快照缺少可继续战斗的身份和顺序。',
+                           missing_fields=('进行中的挑战',))
         elif command in PARTIAL_COMMANDS:
             status = 'partial'
-        elif command in EVIDENCE_ONLY_COMMANDS:
-            status = 'evidence-only'
+        elif command in LOCAL_COMMANDS:
+            status = 'local'
+            details = dict(reason=LOCAL_COMMANDS[command])
+        elif command in EXCLUDED_COMMANDS:
+            status = 'excluded'
+            details = dict(reason=EXCLUDED_COMMANDS[command])
         elif command in MAPPED_COMMANDS or domain:
             status = 'core' if command in MAPPED_COMMANDS else 'restored'
         elif blocks_command(command):
             status = 'excluded'
         else:
             status = 'pending'
+            if command == 40031:
+                details = dict(reason='三份登录均含 id_list，但本地客户端无已确认的消费入口。')
         records.append(dict(command=command, domain=domain or ('core' if command in MAPPED_COMMANDS else ''),
                             status=status, fields_restored=list(details.get('fields_restored', ())),
                             missing_fields=list(details.get('missing_fields', ())),
@@ -174,9 +230,9 @@ def verified_commands(snapshot):
     """Return commands that were restored and must round-trip through login."""
     from capture_import import MAPPED_COMMANDS
 
-    login_commands = (MAPPED_COMMANDS | ACCOUNT_COMMANDS) - {10043}
+    login_commands = (MAPPED_COMMANDS | ACCOUNT_COMMANDS | LOCAL_COMMANDS.keys()) - {10043}
     return [row['command'] for row in recovery_manifest(snapshot)
-            if row['command'] in login_commands and row['status'] in ('core', 'restored')]
+            if row['command'] in login_commands and row['status'] in ('core', 'restored', 'local')]
 
 
 def restore_account_state(db, snapshot, uid):
@@ -220,6 +276,14 @@ def restore_account_state(db, snapshot, uid):
 def _restore_profile(db, packets, uid, timestamp):
     from capture_import import _json
 
+    for packet in packets.get(23015, []):
+        db.upsert('users', uid, dict(ip_location=packet.get('ip_location', '')))
+    for packet in packets.get(81001, []):
+        for group in packet.get('info_list', []):
+            for trigger_id in group.get('completed_trigger_list', []):
+                db.upsert('ops_common', uid, dict(kind='story_trigger', item_id=str(trigger_id),
+                    value_json=_json(group['trigger_group_id'])), keys=('uid', 'kind', 'item_id'))
+
     profile = (packets.get(32009) or [{}])[0]
     birthday = (packets.get(12033) or [{}])[0]
     values = dict(update_ts=timestamp)
@@ -249,6 +313,8 @@ def _restore_profile(db, packets, uid, timestamp):
             db.upsert('daily_fatigue', uid, dict(type=kind, date_str=get_today_date_str(timestamp)), keys=('uid', 'type', 'date_str'))
     db.upsert('game_user', uid, values)
     extra = json.loads(db.get('users', uid).get('extra') or '{}')
+    if packets.get(12019):
+        extra['gift_limit'] = bool(packets[12019][0].get('gift_limit'))
     if packets.get(28001):
         extra.update(task_newbie_phase=int(packets[28001][0].get('newbie_phase', 1)),
                      task_assignment_phase=int(packets[28001][0].get('assignment_phase', 1)))
@@ -316,6 +382,10 @@ def _restore_collections(db, packets, uid, timestamp):
             db.set_red_dot(uid, int(item_id), state)
     for story in (packets.get(12001) or [{}])[0].get('story_list', []):
         db.upsert('story_unlock', uid, dict(story_id=int(story), unlock_flag=1), keys=('uid', 'story_id'))
+    for packet in packets.get(12123, []):
+        for hero_id in packet.get('hero_id_list', []):
+            db.upsert('ops_common', uid, dict(kind='hero_trial_completed', item_id=str(hero_id), value_json='true'),
+                keys=('uid', 'kind', 'item_id'))
     for command, kind in ((12011, 'base'), (12111, 'weak')):
         for guide in (packets.get(command) or [{}])[0].get('mod_guide_list', []):
             if kind == 'weak' and db.get('guide', uid, 'AND guide_id=?', (int(guide),)):
@@ -361,6 +431,11 @@ def _restore_entitlements(db, packets, uid, timestamp):
     from capture_import import _json
     from lazy_timer import get_daily_5am_ts
 
+    if packets.get(15007):
+        from fatigue_service import record_currency_purchases
+        for field in ('left_time_coin', 'left_time_fatigue'):
+            record_currency_purchases(db, uid, field, packets[15007][0].get(field, 0), timestamp)
+
     for command, table in ((34023, 'month_card'), (34101, 'big_month_card'), (34031, 'battlepass')):
         if packets.get(command):
             row = deepcopy(packets[command][0])
@@ -379,6 +454,10 @@ def _restore_entitlements(db, packets, uid, timestamp):
             time_limit_recharge_num=int(row['time_limit_recharge_num']), total_recharge_version=int(row['total_recharge_version']),
             time_limit_version=int(row['now_time_limit_version']), claimed_total_bonus=_json(row.get('receive_total_recharge_list', [])),
             claimed_limit_bonus=_json(row.get('receive_time_limit_recharge_list', [])), update_ts=timestamp))
+    if packets.get(34021):
+        row = packets[34021][0]
+        db.upsert('user_recharge', uid, dict(first_recharge_ids=_json(row.get('first_recharge_id_list', [])),
+            update_ts=timestamp))
     if packets.get(11013):
         row = packets[11013][0]
         db.upsert('sign', uid, dict(activity_id=3, year=row['year'], month=row['month'], day=row['day'],
@@ -450,6 +529,30 @@ def _restore_backhome(db, packets, uid, timestamp):
 def _restore_progress(db, packets, uid, timestamp):
     from capture_import import _json
     from stage_service import EQUIP_GROUP_FIRST_STAGE
+
+    selection = _enchantment_selection(packets.get(42001, []))
+    if selection:
+        db.upsert('ops_common', uid, dict(kind='enchantment_stage_selection', item_id='current',
+            value_json=_json(selection)), keys=('uid', 'kind', 'item_id'))
+
+    if packets.get(51001):
+        import summer_board_service as board
+        from sphero_battle_service import ACTIVITY, STORY
+
+        entries = {row['id']: row['data'] for packet in packets[51001] for row in packet.get('data_list', [])}
+        for stat_id, value in entries.items():
+            db.upsert('history_cmd', uid, dict(kind='history', key_id=str(stat_id), data=str(value),
+                update_ts=timestamp), keys=('uid', 'kind', 'key_id'))
+        extra, state = board.read(db, uid)
+        stages = {stage for key, cfg in board.CFG['conditions'].items() if entries.get(int(key)) == 1
+                  for stage in cfg['params']}
+        state['completed'] = sorted(set(state['completed']) | stages)
+        board.save(db, uid, extra, state)
+        if entries.get(112001) == 1:
+            for stage_id in STORY:
+                db.upsert('sp_hero_challenge_stage', uid, dict(activity_id=ACTIVITY, stage_id=stage_id,
+                    stage_kind='unlock', group_type=0, value=0, update_ts=timestamp),
+                    keys=('uid', 'activity_id', 'stage_id'))
     if 43001 in packets and not _equip_dungeon_gap(packets, timestamp):
         packet = packets[43001][0]
         first = EQUIP_GROUP_FIRST_STAGE[packet['stage_base_id']]
@@ -469,6 +572,13 @@ def _restore_progress(db, packets, uid, timestamp):
 
 def _restore_games(db, packets, uid, timestamp):
     from capture_import import _json
+
+    for row in packets.get(24019, []):
+        if not (row.get('travel_state') or row.get('plot_id')):
+            history = {key: row[key] for key in ('memory', 'favorite', 'trust', 'mood', 'travel_state',
+                'plot_id', 'plot_list', 'complete_ending', 'complete_task') if key in row}
+            db.upsert('ops_common', uid, dict(kind='skuld_travel_history', item_id='0',
+                value_json=_json(history)), keys=('uid', 'kind', 'item_id'))
 
     if packets.get(83026):
         from sphero_leisure_service import read, save
@@ -495,6 +605,25 @@ def _restore_games(db, packets, uid, timestamp):
         from pinball_service import save
         save(db, dict(uid=uid, stage_count=row['hai_la_level'], cleared_stage_list=row.get('stage_list', []),
             unlock_skill_list=row.get('skills', []), equip_skill_list=row.get('select_active_skills', []), score=row['challenge_score']))
+    for packet in packets.get(89421, []):
+        import hodur_service
+        import hodur_challenge
+
+        for row in packet.get('normal_stage_info', []):
+            hodur_service.save(db, uid, dict(chapter_id=row['normal_stage_id'],
+                options=row.get('normal_option_info', []), heroes=row.get('normal_hero_stage_info', []),
+                clears={boss['boss_id']: boss['result'] for boss in row.get('normal_boss_id_list', [])},
+                events_ever=[], run_id=''))
+        for row in packet.get('challenge_stage_info', []):
+            state = hodur_challenge.read(db, uid)
+            state.update(best_score=row.get('challenge_max_score', 0),
+                         stage_best={str(boss['boss_id']): boss['max_score']
+                                     for boss in row.get('challenge_boss_list', [])})
+            if row.get('score_list'):
+                state['score_list'] = row['score_list']
+            if row.get('challenge_buff_info'):
+                state['affixes'] = row['challenge_buff_info']
+            hodur_challenge.save(db, uid, state)
     if packets.get(84331):
         row = packets[84331][0]
         from kadas_race_service import save
@@ -578,6 +707,11 @@ def _restore_exploration(db, packets, uid, timestamp):
 
     for archive_id in (packets.get(24043) or [{}])[0].get('plot_list', []):
         db.upsert('stage_archive_collect', uid, dict(archive_id=int(archive_id)), keys=('uid', 'archive_id'))
+    for packet in packets.get(24045, []):
+        for archive_id in packet.get('plot_list', []):
+            db.upsert('stage_archive_collect', uid, dict(archive_id=int(archive_id)), keys=('uid', 'archive_id'))
+            db.upsert('ops_common', uid, dict(kind='stage_archive_unread', item_id=str(archive_id), value_json='true'),
+                keys=('uid', 'kind', 'item_id'))
     if packets.get(24029):
         row = packets[24029][0]
         scans = set(); clues = {}; events = set(); days = []; map_clues = {}
@@ -625,6 +759,10 @@ def _restore_exploration(db, packets, uid, timestamp):
             for box in chapter.get('box', []):
                 db.upsert('warchess_box', uid, dict(chapter_id=chapter['chapter_id'], box_id=box['id'], num=box['num']),
                     keys=('uid', 'chapter_id', 'box_id'))
+    for packet in packets.get(49023, []):
+        for chapter in packet.get('chess_open_info_list', []):
+            db.execute('UPDATE warchess_chapter SET open_ts=? WHERE chapter_id=?',
+                       (chapter['timestamp'], chapter['chapter_id']))
 
 
 def _restore_communications(db, packets, uid, timestamp):
@@ -668,6 +806,35 @@ def _restore_activities(db, packets, uid, timestamp):
     from new_player_service import enabled
 
     fresh_save = enabled(db, uid)
+
+    if packets.get(68151):
+        pool_rows, _ = _skin_pool_rows(packets[68151], db.get_system_config('capture.resource_version'))
+        for pool_id, drop_id, remain, drawn in pool_rows:
+            db.update_skin_draw_pool_item(uid, pool_id, drop_id, remain, drawn)
+    for packet in packets.get(68161, []):
+        activity_id = packet['activity_id']
+        db.upsert('skin_draw_story', uid, dict(activity_id=activity_id, story_stage=packet.get('story_stage', 0),
+            update_ts=timestamp), keys=('uid', 'activity_id'))
+        for story_id in packet.get('finished_story', []):
+            db.finish_skin_story(uid, activity_id, story_id)
+
+    for packet in packets.get(11071, []):
+        for trial in packet.get('hero_trial_list', []):
+            db.upsert('ops_common', uid, dict(kind='trial_hero_templates', item_id=str(trial['activity_id']),
+                value_json=_json(trial.get('template_hero_list', []))), keys=('uid', 'kind', 'item_id'))
+    for packet in packets.get(60105, []):
+        for row in packet.get('score_info_list', []):
+            db.upsert('activity_score', uid, dict(score_key=row['key'], score=row['score'],
+                update_ts=timestamp), keys=('uid', 'score_key'))
+    for packet in packets.get(60107, []):
+        for reward_id in packet.get('reward_info_list', []):
+            db.upsert('activity_reward', uid, dict(reward_id=reward_id, update_ts=timestamp),
+                keys=('uid', 'reward_id'))
+    for packet in packets.get(85105, []):
+        for row in packet.get('opt_list', []):
+            options = {str(option['key']): option['value'] for option in row.get('opt', [])}
+            db.upsert('ops_common', uid, dict(kind='activity_unlock_options', item_id=str(row['id']),
+                value_json=_json(options)), keys=('uid', 'kind', 'item_id'))
 
     for packet in packets.get(11001, []):
         for row in packet.get('activity_list', []):
@@ -737,6 +904,8 @@ def _restore_activities(db, packets, uid, timestamp):
                 keys=('uid', 'activity_id', 'level'))
 
     if packets.get(35011):
+        from lazy_timer import get_daily_5am_ts
+
         row = packets[35011][0]
         affix = row.get('affix_info') or {}
         db.upsert('equip_seizure_progress', uid, dict(
@@ -748,7 +917,19 @@ def _restore_activities(db, packets, uid, timestamp):
             sum_score=int(row.get('sum_score', 0)),
             refresh_ts=int(row.get('refresh_timestamp', 0)),
             got_reward_id_list=_json(row.get('got_reward_id_list', [])),
+            last_day_tag=get_daily_5am_ts(timestamp),
             update_ts=timestamp))
+
+    if packets.get(44009):
+        from mythic_cycle import bounds
+        from mythic_normal_service import save
+
+        row = packets[44009][0]
+        selection = (packets.get(44019) or [{}])[0].get('difficulty')
+        stars = row.get('main_partition_star_list', [])
+        save(db, uid, dict(cycle=bounds(timestamp)[0], generation=0,
+            stars={str(selection): stars} if stars else {},
+            cleared=row.get('clear_partition_id_list', []), claimed=row.get('star_reward_provide_list', [])))
 
     if not fresh_save and (
             packets.get(44007) or packets.get(44019) or packets.get(44023)):
@@ -809,6 +990,10 @@ def _restore_activities(db, packets, uid, timestamp):
                 challenge_info_json=_json(final.get('challenge_info', [])),
                 is_new_difficulty=int(bool(final.get('is_new_difficulty', False))),
                 update_ts=timestamp))
+        for packet in packets.get(44021, []):
+            for item in packet.get('stage_list', []):
+                db.upsert('ops_common', uid, dict(kind='mythic_final_rotation', item_id=str(item['difficulty_id']),
+                    value_json=_json(item['stage_id'])), keys=('uid', 'kind', 'item_id'))
 
     if not fresh_save and packets.get(45201):
         row = packets[45201][0]
@@ -863,9 +1048,12 @@ def _restore_activities(db, packets, uid, timestamp):
                         layer_id=layer_id,
                         stage_id=int(stage['stage_id']),
                         is_completed=int(bool(stage.get('is_completed', False))),
+                        is_boss=int(source == 'boss_stage_info_list'),
+                        score=stage.get('score'), phase=stage.get('phase'),
+                        boss_hp_rate=stage.get('boss_hp_rate'),
                         update_ts=timestamp),
                         keys=('uid', 'layer_id', 'stage_id'))
-        for reward_id in row.get('got_reward_id_list', []):
+        for reward_id in row.get('got_layer_reward_list', []):
             db.upsert('abyss_reward', uid, dict(
                 reward_id=int(reward_id), update_ts=timestamp),
                 keys=('uid', 'reward_id'))
@@ -949,6 +1137,58 @@ def _restore_activities(db, packets, uid, timestamp):
             activity_id=242871, cleared_stage_list=_json(stages),
             update_ts=timestamp), keys=('uid', 'activity_id'))
 
+    if packets.get(83020):
+        import sphero_battle_service
+        from lazy_timer import get_daily_5am_ts
+
+        row = packets[83020][0]
+        state = sphero_battle_service.read(db, uid)
+        state.update(day=get_daily_5am_ts(timestamp), boss_fights=row.get('fight_cnt', 0),
+            boss_today=row.get('stage_id_list', []),
+            best={str(item['stage_id']): item['score'] for item in row.get('score_info_list', [])},
+            pool_draws=row.get('got_award_cfg_list', []))
+        sphero_battle_service.save(db, uid, state)
+
+    if packets.get(75009) and not _iteration_gap(packets[75009], timestamp):
+        from weekly_challenge_service import get_core_verification_rewards_catalog, get_core_verification_stages
+
+        row = packets[75009][0]
+        cycle = row['now_cycle']
+        period = {key: row[key] for key in ('now_cycle', 'next_cycle', 'refresh_timestamp')}
+        db.upsert('ops_common', uid, dict(kind='core_verification_rotation', item_id='current',
+            value_json=_json(period)), keys=('uid', 'kind', 'item_id'))
+        stages = {stage['id']: stage for group in get_core_verification_stages(cycle) for stage in group}
+        for result in row.get('stage_info', []):
+            stage = stages[result['id']]
+            db.upsert('core_verification_stage_record', uid, dict(cycle=cycle, info_id=result['id'],
+                boss_type=stage['boss_type'], difficult=stage['difficult'], sign=result.get('sign', 0),
+                min_time=result.get('min_time', 0), score=result.get('score', 0), update_ts=timestamp),
+                keys=('uid', 'cycle', 'info_id'))
+        rewards = get_core_verification_rewards_catalog()
+        for reward_id in row.get('reward_list', []):
+            owner_cycle = 0 if rewards[str(reward_id)]['reward_type'] == 4 else cycle
+            db.claim_core_verification_task(uid, reward_id, cycle=owner_cycle)
+        for lock in row.get('lock_list', []):
+            for hero_id in lock.get('hero_list', []):
+                db.upsert('core_verification_hero_lock', uid, dict(cycle=cycle, boss_type=lock['boss_type'],
+                    hero_id=hero_id, update_ts=timestamp), keys=('uid', 'cycle', 'boss_type', 'hero_id'))
+        for affix in row.get('affix_list', []):
+            db.save_core_verification_affix(uid, affix['id'], affix.get('affix_list', []))
+
+    for row in packets.get(75017, []):
+        if not (row.get('challenge_stage') or row.get('info_list') or row.get('max_score_list')):
+            activity = db.get('activity', uid, 'AND activity_id=? AND template=350', (row['open_edition'],))
+            if activity and activity['start_time'] <= timestamp < activity['stop_time']:
+                db.upsert('ops_common', uid, dict(kind='heart_demon_inactive', item_id=str(row['open_edition']),
+                    value_json=_json(activity['stop_time'])), keys=('uid', 'kind', 'item_id'))
+
+    for packet in packets.get(83401, []):
+        for row in packet.get('monster_list', []):
+            db.upsert('monster_cosplay_progress', uid, dict(activity_id=packet['activity_id'], chapter_id=row['id'],
+                unlocked_affixes=_json(row.get('affix_list', [])), completed_stages=_json(row.get('finished_stage', [])),
+                stage_scores=_json(row.get('finished_point_stage', [])), skill_enhance_times=row.get('skill_enhance_times'),
+                update_ts=timestamp), keys=('uid', 'activity_id', 'chapter_id'))
+
     if packets.get(85101):
         for point_id in packets[85101][0].get('reward_list', []):
             db.upsert('summer_chess_point', uid, dict(
@@ -971,6 +1211,9 @@ def _restore_activities(db, packets, uid, timestamp):
             badge_id=int(badge['illustrated_id']),
             unlock_ts=int(badge.get('time', 0))),
             keys=('uid', 'badge_id'))
+    for row in packets.get(89801, []):
+        db.upsert('cvm4_meta', uid, dict(first_enter=int(bool(row.get('first_enter'))),
+            max_point=row.get('max_point', 0), update_ts=timestamp))
 
 
 def _restore_idol(db, packets, uid, timestamp):
@@ -1084,6 +1327,9 @@ def _restore_rogueteam(db, packets, uid, timestamp):
                 unlock_ts=timestamp),
                 keys=('uid', 'template_id', 'node_id'))
         viewed = {int(value) for value in outside.get('view_collection', [])}
+        db.upsert('ops_common', uid, dict(kind='rogueteam_collection_flags', item_id=str(template_id),
+            value_json=_json(dict(unlock=outside.get('unlock_collection', []), viewed=sorted(viewed)))),
+            keys=('uid', 'kind', 'item_id'))
         for collection in outside.get('collection_list', []):
             item_type = int(collection['type'])
             expected_collections.append(dict(type=item_type,
@@ -1154,6 +1400,14 @@ def _restore_admin_cat(db, packets, uid, timestamp):
 def _restore_autochess(db, packets, uid, timestamp):
     """Restore autochess collection, stages and the exact session snapshot."""
     from capture_import import _json
+
+    for packet in packets.get(89207, []):
+        if packet.get('result') != 0:
+            continue
+        for field in ('record', 'medal_record'):
+            for position, record in enumerate(packet.get(field, [])):
+                db.upsert('history_cmd', uid, dict(kind='autochess_' + field, key_id=str(position),
+                    data=_json(record), update_ts=timestamp), keys=('uid', 'kind', 'key_id'))
 
     for row in (packets.get(89201) or [{}])[0].get('stage_list', []):
         db.upsert('autochess_stage', uid, dict(
@@ -1239,11 +1493,13 @@ def account_protocol_state(command, packets):
 
     values = deepcopy(packets)
     set_fields = {'client_opt', 'battle_stage_list', 'stage_list', 'stages', 'skills', 'mission_list',
-                  'pass_chapters', 'reward_list', 'finish_thread_list', 'view_thread_list',
+                  'pass_chapters', 'reward_list', 'reward_info_list', 'finish_thread_list', 'view_thread_list',
                   'gather_card_list', 'gather_enhance_list', 'gather_weal_woe_list',
                   'momotalk_list', 'got_reward_id_list', 'sys_id_list', 'event_list',
                   'stage_id_list', 'affix', 'beacon_id_list', 'get_id_list',
-                  'stage_completed_list', 'clear_difficulty_list', 'upgrade_id_list'}
+                  'stage_completed_list', 'clear_difficulty_list', 'upgrade_id_list',
+                  'received_level_list', 'got_layer_reward_list', 'first_recharge_id_list', 'hero_id_list',
+                  'completed_trigger_list', 'finished_stage'}
     def order_sets(value):
         if isinstance(value, dict):
             for key, item in value.items():
@@ -1255,6 +1511,24 @@ def account_protocol_state(command, packets):
             for item in value:
                 order_sets(item)
     order_sets(values)
+    if command == 10503:
+        for row in values:
+            row.pop('timestamp', None)
+    if command == 89801:
+        for row in values:
+            if not any(stage.get('common_locks') for stage in row.get('common_stages', [])):
+                row.pop('common_stages', None)
+            if not any(task.get('state') for task in row.get('finish_assignment_list', [])):
+                row.pop('finish_assignment_list', None)
+    if command == 75009:
+        for row in values:
+            row['stage_info'] = [stage for stage in row.get('stage_info', [])
+                                 if stage.get('sign') or stage.get('score') or stage.get('min_time')]
+            for lock in row.get('lock_list', []):
+                lock.setdefault('score', 0)
+            max_locks = (row.get('max_score_info') or {}).get('lock_list', [])
+            if not any(lock.get('score') or lock.get('hero_list') for lock in max_locks):
+                row['max_score_info'] = {}
     if command == 13009:
         from enchant_slots_util import normalize_enchant_slots
         for row in values:
@@ -1267,11 +1541,19 @@ def account_protocol_state(command, packets):
         values = [dict(reward=row.get('reward', [])) for row in values]
     if command == 73005:
         values = [dict(limit_list=[item for item in row.get('limit_list', []) if item.get('use')]) for row in values]
-    if command in (24043, 56001):
+    if command in (24043, 24045, 56001):
         for row in values:
             for field in ('plot_list', 'red_dot', 'client_finished_red_dot'):
                 if field in row:
                     row[field].sort()
+    if command == 89421:
+        for packet in values:
+            for row in packet.get('challenge_stage_info', []):
+                if row.get('score_list') == [0, 0, 0, 0]:
+                    row.pop('score_list')
+    if command == 83020:
+        for row in values:
+            row.pop('is_start', None)  # The isolated verifier checks the local activity window.
     if command == 24009:
         values = [dict(user_chapter_list=[item for row in values for item in row.get('user_chapter_list', [])
             if item.get('clear_times') or any(item.get('star_list', []))])]
@@ -1343,19 +1625,9 @@ def account_protocol_state(command, packets):
             for key, items in row.items():
                 if isinstance(items, list) and all(isinstance(item, int) for item in items):
                     row[key] = sorted(items)
-    if command == 11001:
-        for row in values:
-            row['activity_list'] = []
-    if command in (44007, 44019, 44023, 55001, 59001):
-        values = [{}]
     if command == 64031:
         for row in values:
             row['refresh_time'] = sorted(row.get('refresh_time', []))
-    if command == 35011:
-        # The live consumer rotates the daily stage and affix at capture time.
-        # Keep those account values in the source payload and database evidence;
-        # the replay compares only the persisted scores and reward state.
-        values = [{}]
     if command == 88001:
         for row in values:
             row.pop('other_info', None)
@@ -1369,6 +1641,8 @@ def account_protocol_state(command, packets):
             row.pop('modify_type', None)
     if command == 88305:
         for row in values:
-            row['collection_list'] = []
             row['tree_list'] = sorted(row.get('tree_list', []))
+            row['view_collection'] = sorted(row.get('view_collection', []))
+            for collection in row.get('collection_list', []):
+                collection['item_list'] = sorted(collection.get('item_list', []))
     return _wire_state(values)

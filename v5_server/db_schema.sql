@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS abyss_layer_stage (       -- sc_55001 深渊层关卡
     layer_id INTEGER NOT NULL,
     stage_id INTEGER NOT NULL,                       -- 3060004
     is_completed INTEGER DEFAULT 0,
+    is_boss INTEGER DEFAULT 0,
+    score INTEGER,
+    phase INTEGER,
+    boss_hp_rate INTEGER,
     update_ts INTEGER DEFAULT 0,
     PRIMARY KEY (uid, layer_id, stage_id)
 );
@@ -1814,6 +1818,10 @@ CREATE TABLE IF NOT EXISTS monster_cosplay_progress (-- sc_17865 怪物扮演玩
     score INTEGER DEFAULT 0,
     score2 INTEGER DEFAULT 0,
     flag INTEGER DEFAULT 0,
+    unlocked_affixes TEXT,
+    completed_stages TEXT,
+    stage_scores TEXT,
+    skill_enhance_times INTEGER,
     update_ts INTEGER DEFAULT 0,
     PRIMARY KEY (uid, activity_id, chapter_id)
 );

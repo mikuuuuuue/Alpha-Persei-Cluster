@@ -411,7 +411,11 @@ class AutoChessService:
 
     def build_89207_payload(self, db, uid: int) -> bytes:
         """历史对战战绩与徽章记录 (sc_89207)"""
-        return encode("sc_89207", {"result": 0, "record": [], "medal_record": []})
+        data = {'result': 0, 'record': [], 'medal_record': []}
+        for row in db.query('SELECT kind,data FROM history_cmd WHERE uid=? AND kind IN (?,?) '
+                            'ORDER BY CAST(key_id AS INTEGER)', (uid, 'autochess_record', 'autochess_medal_record')):
+            data[row['kind'].removeprefix('autochess_')].append(json.loads(row['data']))
+        return encode('sc_89207', data)
 
     def build_89101_payload(self, db, uid: int) -> bytes:
         """局内整备与棋盘数据 (sc_89101)"""

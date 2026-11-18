@@ -1385,6 +1385,51 @@ class RedpointReportOp(Operation):
         return []
 
 
+@operation
+class StoryTriggerCompleteOp(Operation):
+    """Store the player's completion from the one-way story trigger push."""
+
+    cmd = 81002
+    no_reply = True
+
+    def apply(self, data, ctx):
+        trigger = data.get('trigger_id', 0)
+        if type(trigger) is not int or not 10 <= trigger <= 0xffffffff:
+            raise OperationError(2, '剧情触发 ID 无效')
+        # StoryTriggerCfg uses the final decimal digit for the group's entry number.
+        ctx.db.execute('INSERT OR IGNORE INTO ops_common(uid,kind,item_id,value_json) VALUES(?,?,?,?)',
+                       (self.uid, 'story_trigger', str(trigger), str(trigger // 10)))
+        return {}
+
+    def respond(self, result, data, ctx):
+        return []
+
+
+@operation
+class ActivityUnlockOptionOp(Operation):
+    """Persist one option from the client's 85106 push."""
+
+    cmd = 85106
+    no_reply = True
+
+    def apply(self, data, ctx):
+        group = data.get('id')
+        option = data.get('opt') or {}
+        if not isinstance(option, dict):
+            raise OperationError(2, '活动选项数据无效')
+        key, value = option.get('key'), option.get('value')
+        if not all(type(item) is int and 0 <= item <= 0xffffffff for item in (group, key, value)) or not group:
+            raise OperationError(2, '活动选项数据无效')
+        ctx.db.execute('INSERT INTO ops_common(uid,kind,item_id,value_json) VALUES(?,?,?,?) '
+                       'ON CONFLICT(uid,kind,item_id) DO UPDATE SET value_json=json_set(value_json,?,?)',
+                       (self.uid, 'activity_unlock_options', str(group), json.dumps({str(key): value}),
+                        f'$."{key}"', value))
+        return {}
+
+    def respond(self, result, data, ctx):
+        return []
+
+
 # ---------------- 16010 抽卡系统与卡池管理（统一委托给 DrawService 领域服务） ----------------
 
 from draw_service import (
@@ -2073,24 +2118,38 @@ class CurrencyBuyDiamondOp(Operation):
         return _refresh_frames(ctx, self.uid, strict=True) + [DownFrame(self.sc, payload)]
 
 
+def _currency_purchase_response(ctx, uid, state, ack):
+    frames = _refresh_frames(ctx, uid)
+    if state is not None:
+        payload = ctx.codec_encode('sc_15007', state)
+        if not payload:
+            raise OperationError(2, '购买次数状态编码失败')
+        frames.append(DownFrame(15007, payload))
+    return frames + [ack]
+
+
 @operation
 class BuyCoinOp(Operation):
     """[Fix by Gemini 3.7-flash] 购买金币：cs_15012 {id} → sc_15013 {result, reward_list} + sc_15009。"""
 
     cmd = 15012
     sc = 15013
+    prepare_response_in_transaction = True
 
     def apply(self, data, ctx):
+        from fatigue_service import record_currency_purchases
+
         _item_deduct(ctx, self.uid, 1, 20)
         _item_add(ctx, self.uid, 2, 100000)
-        return {"gold": 100000}
+        counts = record_currency_purchases(ctx.db, self.uid, 'left_time_coin', 1)
+        return dict(gold=100000, purchase_counts=counts)
 
     def respond(self, result, data, ctx):
         payload = ctx.codec_encode("sc_15013", {
             "result": 0,
             "reward_list": [{"id": 2, "num": result["gold"]}]
         }) or b"\x08\x00"
-        return _refresh_frames(ctx, self.uid) + [DownFrame(self.sc, payload)]
+        return _currency_purchase_response(ctx, self.uid, result['purchase_counts'], DownFrame(self.sc, payload))
 
 
 @operation
@@ -2099,9 +2158,14 @@ class BuyFatigueOp(Operation):
 
     cmd = 15016
     sc = 15017
+    prepare_response_in_transaction = True
 
     def apply(self, data, ctx):
+        from fatigue_service import record_currency_purchases
+
         num = int(data.get("num") or 1)
+        if num < 1:
+            raise OperationError(2, '体力购买次数无效')
         fatigue_gain = num * 120
         cost_diamond = num * 50
         _item_deduct(ctx, self.uid, 1, cost_diamond)
@@ -2110,14 +2174,15 @@ class BuyFatigueOp(Operation):
             event_bus.bus.emit(event_bus.Events.BUY_FATIGUE, ctx, self.uid, times=num)
         except Exception:
             pass
-        return {"fatigue": fatigue_gain}
+        counts = record_currency_purchases(ctx.db, self.uid, 'left_time_fatigue', num)
+        return dict(fatigue=fatigue_gain, purchase_counts=counts)
 
     def respond(self, result, data, ctx):
         payload = ctx.codec_encode("sc_15017", {
             "result": 0,
             "reward_list": [{"id": 4, "num": result["fatigue"]}]
         }) or b"\x08\x00"
-        return _refresh_frames(ctx, self.uid) + [DownFrame(self.sc, payload)]
+        return _currency_purchase_response(ctx, self.uid, result['purchase_counts'], DownFrame(self.sc, payload))
 
 
 @operation
@@ -6764,7 +6829,7 @@ class CoreVerificationGetRewardOp(Operation):
         if isinstance(r_list, (int, str)):
             r_list = [int(r_list)]
         
-        now_cycle = _wcs.get_core_verification_cycle()
+        now_cycle, _, _ = _wcs.get_core_verification_period(ctx.db, self.uid)
         rew_cat = _wcs.get_core_verification_rewards_catalog()
 
         # 读取当前周期通关战绩，计算 Boss 1 和 Boss 2 当前最高通关难度
@@ -6870,7 +6935,7 @@ class CoreVerificationResetChallengeOp(Operation):
     def apply(self, data, ctx):
         import weekly_challenge_service as _wcs
         r_type = int(data.get("type") or 0)
-        cycle = _wcs.get_core_verification_cycle()
+        cycle, _, _ = _wcs.get_core_verification_period(ctx.db, self.uid)
         if ctx.db and hasattr(ctx.db, "reset_core_verification_challenge"):
             ctx.db.reset_core_verification_challenge(self.uid, cycle, r_type)
         return {"result": 0, "type": r_type}

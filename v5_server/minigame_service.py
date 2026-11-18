@@ -167,10 +167,18 @@ class MiniGameService:
         from codec import encode
         return encode('sc_68181', payload(db or self.db, uid))
 
+    @staticmethod
+    def _uses_resident_snapshot(db, cmd):
+        return db.get_system_config('save.profile') == 'capture_import_v1' and bool(db.query(
+            'SELECT 1 FROM login_push WHERE cmd=? AND dynamic=1 AND payload_json IS NULL LIMIT 1', (cmd,)))
+
     def build_60105_payload(self, db, uid):
         """生成 sc_60105 (常驻积分活动分值汇总) 下行 payload"""
         from codec import encode
         db = db or self.db
+        if self._uses_resident_snapshot(db, 60105):
+            rows = db.query('SELECT score_key AS key, score FROM activity_score WHERE uid=? ORDER BY score_key', (uid,))
+            return encode('sc_60105', dict(score_info_list=rows))
         from ash_service import mirror_point
         mirror_point(db, uid)
         from osiris_service import sync as sync_osiris
@@ -190,6 +198,9 @@ class MiniGameService:
         """生成 sc_60107 (常驻积分奖励领奖记录) 下行 payload"""
         from codec import encode
         db = db or self.db
+        if self._uses_resident_snapshot(db, 60107):
+            rows = db.query('SELECT reward_id FROM activity_reward WHERE uid=? ORDER BY reward_id', (uid,))
+            return encode('sc_60107', dict(reward_info_list=[row['reward_id'] for row in rows]))
         rows = db.query(
             "SELECT reward_id FROM activity_point_reward WHERE uid=?",
             (uid,)

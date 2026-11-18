@@ -227,8 +227,8 @@ GROUP BY status;
 
 无持久表的协议保留完整帧、来源哈希和会话 ID。需要重新抓包时，按报告中的 `recapture` 操作，并新建输出目录。不要修改旧证据目录。
 
-`pending` 表示尚未确认持久消费者，`partial` 表示只恢复部分字段。两者都不是完整恢复。`excluded` 记录现有联机或账号隔离策略，不能当作账号状态已恢复。
+`pending` 表示尚未确认消费入口。`partial` 表示缺少完整状态或核验证据。`local` 表示按本地时钟、目录或策略生成，并记录来源差异。`excluded` 表示按归属排除的全服、运营或联机数据。
 
-槽位 8 的发布报告有 55 个未闭合协议。用本版导入器重建同一来源后，隔离候选已读回刻印副本套装和保底，剩余 54 项见[逐项清单](plans/2026-11-17-g-protocol-gaps.md)；170 帧、103 个协议及 `published=false` 见[逐值报告](../selftest_tmp/priority-repair/g-1117-43001/verified.json)。已有存档不会自动补入这些数值。
+用本版导入器重建 `1117-补` 后，隔离候选通过 195 帧和 147 个协议的核验。用户在 PC 332 确认槽位 3 验收档的导入数据正常。抽卡保底 `16015` 后置，`40031` 已登记。槽位 8 仍使用 11 月 17 日的发布档。[逐项清单](plans/2026-11-17-g-protocol-gaps.md) · [客户端验收记录](plans/2026-11-13-client-acceptance.md#11-月-18-日导入验收)
 
 猫咪探索和虚构推演的周状态需要保留捕获周期。验证时核对 `admin_cat_explore_data.last_weekly_reset_ts` 和 `ops_common` 中 `capture_rogueteam_fetters` 的记录。普通存档仍按当前周生成，不读取其他恢复档的来源周。

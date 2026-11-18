@@ -19,6 +19,27 @@ RECOVER_INTERVAL_SEC = 360  # 6 分钟 = 360 秒
 _LEVEL_UP_REWARDS_CACHE = None
 
 
+def currency_purchase_counts(db, uid, timestamp=None):
+    from lazy_timer import get_daily_5am_ts
+
+    day = str(get_daily_5am_ts(timestamp))
+    row = db.get('ops_common', uid, "AND kind='currency_purchase_daily' AND item_id=?", (day,))
+    return json.loads(row['value_json']) if row else dict(left_time_coin=0, left_time_fatigue=0)
+
+
+def record_currency_purchases(db, uid, field, amount, timestamp=None):
+    from lazy_timer import get_daily_5am_ts
+
+    if db.get_system_config('save.profile') != 'capture_import_v1':
+        return None
+    timestamp = int(time.time() if timestamp is None else timestamp)
+    counts = currency_purchase_counts(db, uid, timestamp)
+    counts[field] += amount
+    db.upsert('ops_common', uid, dict(kind='currency_purchase_daily',
+        item_id=str(get_daily_5am_ts(timestamp)), value_json=json.dumps(counts)), keys=('uid', 'kind', 'item_id'))
+    return counts
+
+
 def get_level_up_fatigue_reward(old_level, new_level):
     """Sum client fatigue_upgrade_reward, independently of fatigue capacity."""
     global _LEVEL_UP_REWARDS_CACHE

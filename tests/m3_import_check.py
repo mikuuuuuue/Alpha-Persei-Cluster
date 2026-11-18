@@ -1452,6 +1452,135 @@ print(json.dumps({'registry':registry}))
         self.assertGreater(len(verified), 0)
         self.assertEqual(len(verified), len(set(verified)))
 
+    def test_imported_purchases_update_real_counts_and_reset_at_game_day(self):
+        from lazy_timer import get_daily_5am_ts
+
+        uid = 880000004301
+        captured_at = 1794920258
+        db = AccountDB.new_save_workspace()
+        self.addCleanup(db.close)
+        db.upsert('users', uid, dict(nick='购买次数回归'))
+        db.set_system_config('save.profile', 'capture_import_v1')
+        db.set_currency(uid, 1, 500)
+        expected = dict(left_time_coin=2, left_time_fatigue=3)
+        capture_account_state._restore_entitlements(db, {15007: [expected]}, uid, captured_at)
+        connection = Connection(uid=uid, db=db, generator=generator,
+                                codec_encode=codec.encode, codec_decode=codec.decode)
+        server = Core(db=db, generator=generator, codec_encode=codec.encode,
+                      codec_decode=codec.decode, log=lambda *a, **k: None)
+        with patch('time.time', return_value=captured_at):
+            first = generator.gen_payload(15007, uid=uid, db=db)
+            self.assertEqual(codec.decode(first, 'sc_15007'), expected)
+            for command, data, field in ((15012, dict(id=2), 'left_time_coin'),
+                                          (15016, dict(num=1), 'left_time_fatigue')):
+                request = CoreRequest(command, codec.encode(f'cs_{command}', data), uid=uid)
+                response = server.dispatch(request, connection)
+                expected[field] += 1
+                frame = next(frame for frame in response.frames if frame['sc'] == 15007)
+                self.assertEqual(codec.decode(frame['payload'], 'sc_15007'), expected)
+            before = db.get_item_num(uid, 1)
+            request = CoreRequest(15016, codec.encode('cs_15016', dict(num=100)), uid=uid)
+            rejected = server.dispatch(request, connection)
+            self.assertNotIn(15007, [frame['sc'] for frame in rejected.frames])
+            self.assertEqual(db.get_item_num(uid, 1), before)
+            self.assertEqual(codec.decode(generator.gen_payload(15007, uid=uid, db=db), 'sc_15007'), expected)
+            with patch.object(connection.to_handler_ctx(), 'codec_encode', side_effect=lambda name, data:
+                    b'' if name == 'sc_15007' else codec.encode(name, data)):
+                request = CoreRequest(15012, codec.encode('cs_15012', dict(id=2)), uid=uid)
+                failed = server.dispatch(request, connection)
+                self.assertNotIn(15007, [frame['sc'] for frame in failed.frames])
+            self.assertEqual(db.get_item_num(uid, 1), before)
+            self.assertEqual(codec.decode(generator.gen_payload(15007, uid=uid, db=db), 'sc_15007'), expected)
+        with patch('time.time', return_value=get_daily_5am_ts(captured_at) + 86400):
+            payload = generator.gen_payload(15007, uid=uid, db=db)
+            self.assertEqual(codec.decode(payload, 'sc_15007'), dict(left_time_coin=0, left_time_fatigue=0))
+
+    def test_imported_seven_day_sign_continues_after_first_cycle(self):
+        uid = 880000004300
+        previous_sign = dict(activity_id=4400101, sign_count=54, last_sign_time=1794917614)
+        now = 1794996854
+        db = AccountDB.new_save_workspace()
+        self.addCleanup(db.close)
+        db.upsert('users', uid, dict(nick='七日签到回归'))
+        db.upsert('game_user', uid, {})
+        db.execute("INSERT INTO item_catalog(id,type,category) VALUES(24,1,'currency')")
+        capture_account_state._restore_entitlements(db, {11015: [previous_sign]}, uid, now)
+        server = Core(db=db, generator=generator, codec_encode=codec.encode,
+                      codec_decode=codec.decode, log=lambda *a, **k: None)
+        connection = Connection(uid=uid, db=db, generator=generator,
+                                codec_encode=codec.encode, codec_decode=codec.decode)
+        request = CoreRequest(11010, codec.encode('cs_11010', dict(activity_id=4400101)), uid=uid)
+        expected_state = dict(activity_id=4400101, sign_count=55, last_sign_time=now)
+        with patch('time.time', return_value=now), patch('res_version_manager.get_current_version', return_value='321'):
+            for _ in range(2):
+                response = server.dispatch(request, connection)
+                frames = {frame['sc']: codec.decode(frame['payload'], f"sc_{frame['sc']}")
+                          for frame in response.frames}
+                self.assertEqual(frames[11011], dict(result=0, item_list=[dict(id=24, num=100)]))
+                self.assertEqual(frames[11015], expected_state)
+                self.assertEqual(db.get_item_num(uid, 24), 100)
+            self.assertEqual(codec.decode(generator.gen_payload(11015, uid=uid, db=db), 'sc_11015'),
+                             expected_state)
+
+    def test_enchantment_query_returns_the_imported_selection(self):
+        uid = 880000004302
+        db = AccountDB.new_save_workspace()
+        self.addCleanup(db.close)
+        db.upsert('users', uid, dict(nick='联合特勤回归'))
+        db.set_system_config('save.profile', 'capture_import_v1')
+        expected = dict(free_refreshed_times=2, all_buy_refreshed_times=0, enchantment_battle_list=[22, 9, 7])
+        capture_account_state._restore_progress(db, {42001: [expected]}, uid, 1794920258)
+        server = Core(db=db, generator=generator, codec_encode=codec.encode,
+                      codec_decode=codec.decode, log=lambda *a, **k: None)
+        for owner in (uid, uid + 1):
+            connection = Connection(uid=owner, db=db, generator=generator,
+                                    codec_encode=codec.encode, codec_decode=codec.decode)
+            response = server.dispatch(CoreRequest(42002, b'', uid=owner), connection)
+            actual = [codec.decode(frame['payload'], 'sc_42001') for frame in response.frames if frame['sc'] == 42001]
+            self.assertEqual(actual, [expected] if owner == uid else [])
+
+    def test_resident_snapshot_keeps_separate_caches_and_legacy_payloads(self):
+        uid = 880000004303
+        db = AccountDB.new_save_workspace()
+        self.addCleanup(db.close)
+        db.upsert('users', uid, dict(nick='常驻积分隔离'))
+        db.set_system_config('save.profile', 'capture_import_v1')
+        db.upsert('activity_point', uid, dict(activity_id=999001, point=42), keys=('uid', 'activity_id'))
+        db.upsert('activity_point_reward', uid, dict(activity_id=999001, reward_id=99900101),
+                  keys=('uid', 'activity_id', 'reward_id'))
+        source = {60105: [dict(score_info_list=[dict(key=400, score=17)])],
+                  60107: [dict(reward_info_list=[40001])]}
+        capture_account_state._restore_activities(db, source, uid, 1794920258)
+        legacy_score = codec.decode(generator.gen_payload(60105, uid=uid, db=db), 'sc_60105')
+        legacy_rewards = codec.decode(generator.gen_payload(60107, uid=uid, db=db), 'sc_60107')
+        self.assertIn(dict(key=999001, score=42), legacy_score['score_info_list'])
+        self.assertIn(99900101, legacy_rewards['reward_info_list'])
+        for sequence, command in enumerate(source, 1):
+            db.execute('INSERT INTO login_push(seq,cmd,header,payload,dynamic) VALUES(?,?,?,?,1)',
+                       (sequence, command, generator.build_frame(command, b'')[:11], b''))
+            decoded = codec.decode(generator.gen_payload(command, uid=uid, db=db), f'sc_{command}')
+            self.assertEqual([decoded], source[command])
+
+    def test_options_and_story_triggers_preserve_imported_state_on_client_push(self):
+        uid = 880000004304
+        db = AccountDB.new_save_workspace()
+        self.addCleanup(db.close)
+        db.upsert('users', uid, dict(nick='剧情与选项回归'))
+        imported = {85105: [dict(opt_list=[dict(id=1, opt=[dict(key=2, value=1)])])],
+                    81001: [dict(info_list=[dict(trigger_group_id=101101, completed_trigger_list=[1011011])])]}
+        capture_account_state._restore_profile(db, imported, uid, 1794920258)
+        capture_account_state._restore_activities(db, imported, uid, 1794920258)
+        server = Core(db=db, generator=generator, codec_encode=codec.encode,
+                      codec_decode=codec.decode, log=lambda *a, **k: None)
+        for command, data in ((85106, dict(id=1, opt=dict(key=3, value=4))),
+                              (81002, dict(trigger_id=1011012, trigger_story=1, trigger_text=0, trigger_select=0))):
+            result = server.dispatch(CoreRequest(command, codec.encode(f'cs_{command}', data), uid=uid))
+            self.assertFalse(result.reply)
+        options = codec.decode(generator.gen_payload(85105, uid=uid, db=db), 'sc_85105')
+        triggers = codec.decode(generator.gen_payload(81001, uid=uid, db=db), 'sc_81001')
+        self.assertEqual(options, dict(opt_list=[dict(id=1, opt=[dict(key=2, value=1), dict(key=3, value=4)])]))
+        self.assertEqual(triggers, dict(info_list=[dict(trigger_group_id=101101, completed_trigger_list=[1011011, 1011012])]))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -83,8 +83,12 @@ def boss_payload(db,uid):
 
 def history_entries(db,uid):
     stories,_,_=stages(db,uid);state=read(db,uid)
-    return [dict(id=112001,data=int(set(STORY)<=stories)),
-            dict(id=112031,data=state['best'].get('5170221',0)),dict(id=112032,data=state['best'].get('5170222',0))]
+    entries = {112001: int(set(STORY) <= stories), 112031: state['best'].get('5170221', 0),
+               112032: state['best'].get('5170222', 0)}
+    for row in db.query("SELECT key_id FROM history_cmd WHERE uid=? AND kind='history' AND key_id IN ('112031','112032')", (uid,)):
+        stat_id = int(row['key_id'])
+        entries[stat_id] = schedule.history_value(db, uid, stat_id)
+    return [dict(id=key, data=value) for key, value in entries.items()]
 
 
 def training_gain(stage,value):
@@ -201,6 +205,10 @@ def settle(ctx,uid,bid,session,result,report):
             full=CFG['settings']['activity_hero_challenge_boss_basescore'][0]+CFG['settings']['activity_hero_challenge_boss_timescore'][1]
             state['best'][str(stage)]=max(state['best'].get(str(stage),0),full)
             state['boss_fights']+=1;state['boss_today']=sorted(set(state['boss_today'])|{stage})
+            stat_id = {5170221: 112031, 5170222: 112032}[stage]
+            ctx.db.upsert('history_cmd', uid, dict(kind='history', key_id=str(stat_id),
+                data=str(max(state['best'][str(stage)], schedule.history_value(ctx.db, uid, stat_id))), update_ts=now),
+                keys=('uid', 'kind', 'key_id'))
         items=rewards(stage,first,eligible)
         if stage in BOSSES and eligible:
             remaining=[i for i,v in POOL.items() for _ in range(v['total']-state['pool_draws'].count(i))]

@@ -81,9 +81,10 @@ def payload(db, uid):
     if db is None:
         return dict(clear_partition_id_list=[], main_partition_star_list=[], star_reward_provide_list=[])
     state = load(db, uid)
-    selected = selected_difficulty(db, uid)
+    stars = state['stars']
+    selected = selected_difficulty(db, uid) if stars else None
     return dict(clear_partition_id_list=state['cleared'],
-                main_partition_star_list=state['stars'].get(str(selected), []),
+                main_partition_star_list=stars.get(str(selected), []),
                 star_reward_provide_list=state['claimed'])
 
 
